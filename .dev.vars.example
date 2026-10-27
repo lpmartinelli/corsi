@@ -1,0 +1,3 @@
+# Copia in .dev.vars per lo sviluppo locale (senza Cloudflare Access)
+DEV_USER_EMAIL=tua@email.it
+ADMIN_EMAIL=tua@email.it
