@@ -3,6 +3,10 @@
   "name": "corsi",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  // ACCESS_TEAM_DOMAIN, ACCESS_AUD e ADMIN_EMAIL si impostano dalla dashboard: non vanno sovrascritte al deploy
+  "keep_vars": true,
   "assets": {
     "directory": "./public",
     "not_found_handling": "single-page-application",
