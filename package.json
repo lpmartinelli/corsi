@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy && wrangler d1 migrations apply corsi --remote",
     "db:migrate:local": "wrangler d1 migrations apply corsi --local",
     "db:migrate:remote": "wrangler d1 migrations apply corsi --remote",
     "test": "node --test"

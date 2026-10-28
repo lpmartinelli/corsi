@@ -29,6 +29,7 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 
 ## Pubblicazione
 
-1. `npx wrangler deploy` (crea anche il database D1), poi `npm run db:migrate:remote`
+1. `npm run deploy`: pubblica il Worker (al primo giro crea anche il database D1), poi applica le migrazioni.
+   Su Workers Builds: Build command vuoto, Deploy command `npm run deploy`.
 2. Cloudflare Zero Trust → Access → proteggi il dominio del Worker con una policy sulle email di admin e coordinatori
 3. Imposta le variabili `ACCESS_TEAM_DOMAIN` (es. `https://<team>.cloudflareaccess.com`), `ACCESS_AUD` e `ADMIN_EMAIL`
