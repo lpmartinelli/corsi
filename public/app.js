@@ -355,6 +355,7 @@ function mostraLinkAttivazione(titolo, token) {
 function paginaAccesso(titolo, campi, invio, piede = '') {
   app.innerHTML = `
     <div class="accesso"><form id="accesso">
+      <strong class="muted">Gestione corsi</strong>
       <h1>${esc(titolo)}</h1>
       ${campi.map((c) => campoHtml(c)).join('')}
       <p class="errore" id="errore-accesso" hidden></p>
@@ -409,8 +410,7 @@ async function cambiaPassword() {
 }
 
 function mostraIntestazione() {
-  document.getElementById('nav').hidden = !io;
-  document.getElementById('utente').hidden = !io;
+  document.getElementById('intestazione').hidden = !io;
   if (!io) return;
   document.getElementById('utente-nome').textContent = `${io.nome} · ${io.ruolo === 'admin' ? 'Amministratore' : 'Coordinatore'}`;
   document.getElementById('nav-utenti').hidden = io.ruolo !== 'admin';
