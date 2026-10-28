@@ -221,10 +221,10 @@ const rotte = [
 ];
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
-      const utente = await utenteCorrente(request, env);
+      const utente = await utenteCorrente(env, ctx);
       if (!utente) return errore('Accesso non autorizzato', 403);
 
       for (const [metodo, regex, handler, ruolo] of rotte) {
