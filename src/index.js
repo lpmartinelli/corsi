@@ -1,4 +1,7 @@
-import { utenteCorrente } from './auth.js';
+import {
+  PASSWORD_MINIMA, apriSessione, chiudiSessione, cookieSessione, creaAttivazione, hashPassword, hashToken,
+  pubblico, stringheUguali, utenteCorrente, verificaPassword,
+} from './auth.js';
 import { verificaSquadra } from './regole.js';
 
 const json = (data, status = 200) => Response.json(data, { status });
@@ -181,15 +184,93 @@ async function salvaUtente(env, id, body) {
   const valori = [body.email.trim(), body.nome.trim(), body.ruolo, body.attivo === false ? 0 : 1];
   if (id) {
     await env.DB.prepare('UPDATE utenti SET email=?, nome=?, ruolo=?, attivo=? WHERE id=?').bind(...valori, id).run();
+    if (body.attivo === false) await env.DB.prepare('DELETE FROM sessioni WHERE utente_id = ?').bind(id).run();
     return { id };
   }
-  return env.DB.prepare('INSERT INTO utenti (email, nome, ruolo, attivo) VALUES (?, ?, ?, ?) RETURNING id').bind(...valori).first();
+  ({ id } = await env.DB.prepare('INSERT INTO utenti (email, nome, ruolo, attivo) VALUES (?, ?, ?, ?) RETURNING id').bind(...valori).first());
+  return { id, token: await creaAttivazione(env, id) };
+}
+
+// ---------- Accesso ----------
+
+function controllaPassword(password) {
+  if (!password || password.length < PASSWORD_MINIMA) throw new ErroreRichiesta(`La password deve avere almeno ${PASSWORD_MINIMA} caratteri`);
+}
+
+async function rispostaConSessione(env, request, utente) {
+  const token = await apriSessione(env, utente.id);
+  return Response.json(pubblico(utente), { headers: { 'Set-Cookie': cookieSessione(request, token) } });
+}
+
+async function login(env, request, body) {
+  richiedi(body, ['email', 'password']);
+  const utente = await env.DB.prepare('SELECT * FROM utenti WHERE email = ? AND attivo = 1').bind(body.email.trim()).first();
+  // Stesso messaggio per email inesistente e password errata: non si possono enumerare gli account
+  if (!utente || !(await verificaPassword(body.password, utente.password_hash))) {
+    throw new ErroreRichiesta('Email o password non corretti', 401);
+  }
+  return rispostaConSessione(env, request, utente);
+}
+
+/** Imposta la password tramite link di attivazione (primo accesso o reimpostazione) ed entra. */
+async function attiva(env, request, body) {
+  richiedi(body, ['token', 'password']);
+  controllaPassword(body.password);
+  const utente = await env.DB.prepare('SELECT * FROM utenti WHERE attivazione_hash = ? AND attivazione_scade > ? AND attivo = 1')
+    .bind(await hashToken(body.token), new Date().toISOString()).first();
+  if (!utente) throw new ErroreRichiesta('Link non valido o scaduto: chiedi all\'amministratore di generarne uno nuovo', 400);
+  const hash = await hashPassword(body.password);
+  await env.DB.batch([
+    env.DB.prepare('UPDATE utenti SET password_hash = ?, attivazione_hash = NULL, attivazione_scade = NULL WHERE id = ?').bind(hash, utente.id),
+    env.DB.prepare('DELETE FROM sessioni WHERE utente_id = ?').bind(utente.id),
+  ]);
+  return rispostaConSessione(env, request, { ...utente, password_hash: hash });
+}
+
+/**
+ * Primo accesso (o recupero) dell'amministratore: richiede ADMIN_EMAIL e il codice segreto ADMIN_SETUP_CODE,
+ * impostati in dashboard. Eliminando il secret, questa via d'accesso si chiude.
+ */
+async function primoAccesso(env, request, body) {
+  richiedi(body, ['email', 'codice', 'password']);
+  controllaPassword(body.password);
+  const ok = env.ADMIN_EMAIL && env.ADMIN_SETUP_CODE
+    && body.email.trim().toLowerCase() === env.ADMIN_EMAIL.toLowerCase()
+    && (await stringheUguali(body.codice, env.ADMIN_SETUP_CODE));
+  if (!ok) throw new ErroreRichiesta('Email o codice non corretti', 401);
+
+  const hash = await hashPassword(body.password);
+  const utente = await env.DB.prepare(`INSERT INTO utenti (email, nome, ruolo, password_hash) VALUES (?, ?, 'admin', ?)
+    ON CONFLICT (email) DO UPDATE SET ruolo = 'admin', attivo = 1, password_hash = excluded.password_hash
+    RETURNING *`).bind(env.ADMIN_EMAIL, env.ADMIN_EMAIL.split('@')[0], hash).first();
+  await env.DB.prepare('DELETE FROM sessioni WHERE utente_id = ?').bind(utente.id).run();
+  return rispostaConSessione(env, request, utente);
+}
+
+async function cambiaPassword(env, utente, body) {
+  richiedi(body, ['attuale', 'nuova']);
+  controllaPassword(body.nuova);
+  if (!(await verificaPassword(body.attuale, utente.password_hash))) throw new ErroreRichiesta('Password attuale non corretta');
+  await env.DB.prepare('UPDATE utenti SET password_hash = ? WHERE id = ?').bind(await hashPassword(body.nuova), utente.id).run();
+  return { ok: true };
 }
 
 // ---------- Router ----------
 
+// Accessibili senza sessione
+const rottePubbliche = [
+  ['POST', /^\/api\/auth\/login$/, ({ env, request, body }) => login(env, request, body)],
+  ['POST', /^\/api\/auth\/attiva$/, ({ env, request, body }) => attiva(env, request, body)],
+  ['POST', /^\/api\/auth\/primo-accesso$/, ({ env, request, body }) => primoAccesso(env, request, body)],
+  ['POST', /^\/api\/auth\/logout$/, async ({ env, request }) => {
+    await chiudiSessione(env, request);
+    return Response.json({ ok: true }, { headers: { 'Set-Cookie': cookieSessione(request, null) } });
+  }],
+];
+
 const rotte = [
-  ['GET', /^\/api\/me$/, (ctx) => ctx.utente],
+  ['GET', /^\/api\/me$/, ({ utente }) => pubblico(utente)],
+  ['POST', /^\/api\/auth\/password$/, ({ env, utente, body }) => cambiaPassword(env, utente, body)],
   ['GET', /^\/api\/abilitazioni$/, async ({ env }) => (await env.DB.prepare('SELECT * FROM abilitazioni ORDER BY codice').all()).results],
 
   ['GET', /^\/api\/istruttori$/, ({ env }) => listaIstruttori(env)],
@@ -215,26 +296,36 @@ const rotte = [
     return dettaglioCorso(env, Number(p[1]));
   }],
 
-  ['GET', /^\/api\/utenti$/, async ({ env }) => (await env.DB.prepare('SELECT * FROM utenti ORDER BY nome').all()).results],
+  ['GET', /^\/api\/utenti$/, async ({ env }) => (await env.DB.prepare('SELECT * FROM utenti ORDER BY nome').all()).results.map(pubblico)],
   ['POST', /^\/api\/utenti$/, ({ env, body }) => salvaUtente(env, null, body), 'admin'],
   ['PUT', /^\/api\/utenti\/(\d+)$/, ({ env, body, p }) => salvaUtente(env, Number(p[1]), body), 'admin'],
+  ['POST', /^\/api\/utenti\/(\d+)\/attivazione$/, async ({ env, p }) => ({ token: await creaAttivazione(env, Number(p[1])) }), 'admin'],
 ];
 
+function trova(elenco, request, url) {
+  for (const [metodo, regex, handler, ruolo] of elenco) {
+    const p = url.pathname.match(regex);
+    if (p && request.method === metodo) return { handler, ruolo, p };
+  }
+  return null;
+}
+
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     try {
-      const utente = await utenteCorrente(env, ctx);
-      if (!utente) return errore('Accesso non autorizzato', 403);
-
-      for (const [metodo, regex, handler, ruolo] of rotte) {
-        const p = url.pathname.match(regex);
-        if (!p || request.method !== metodo) continue;
-        if (ruolo && utente.ruolo !== ruolo) return errore('Operazione riservata all\'amministratore', 403);
-        const body = ['POST', 'PUT'].includes(metodo) ? await request.json() : null;
-        return json(await handler({ env, url, utente, body, p }));
+      const body = ['POST', 'PUT'].includes(request.method) ? await request.json().catch(() => ({})) : null;
+      let utente = null;
+      let rotta = trova(rottePubbliche, request, url);
+      if (!rotta) {
+        utente = await utenteCorrente(env, request);
+        if (!utente) return errore('Accesso richiesto', 401);
+        rotta = trova(rotte, request, url);
+        if (!rotta) return errore('Non trovato', 404);
+        if (rotta.ruolo && utente.ruolo !== rotta.ruolo) return errore('Operazione riservata all\'amministratore', 403);
       }
-      return errore('Non trovato', 404);
+      const risultato = await rotta.handler({ env, request, url, utente, body, p: rotta.p });
+      return risultato instanceof Response ? risultato : json(risultato);
     } catch (e) {
       if (e instanceof ErroreRichiesta) return errore(e.message, e.status);
       console.error(e);

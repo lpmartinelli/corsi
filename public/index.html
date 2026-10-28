@@ -9,13 +9,17 @@
 <body>
   <header>
     <strong>Corsi</strong>
-    <nav>
+    <nav id="nav" hidden>
       <a href="#/corsi">Corsi</a>
       <a href="#/istruttori">Istruttori</a>
       <a href="#/committenti">Committenti</a>
       <a href="#/utenti" id="nav-utenti" hidden>Utenti</a>
     </nav>
-    <span id="utente"></span>
+    <span id="utente" hidden>
+      <span id="utente-nome"></span>
+      <button class="piccolo" id="cambia-password">Password</button>
+      <button class="piccolo" id="esci">Esci</button>
+    </span>
   </header>
   <main id="app"></main>
   <dialog id="dialogo"><form method="dialog" id="dialogo-form"></form></dialog>

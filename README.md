@@ -31,8 +31,14 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 
 1. `npm run deploy`: pubblica il Worker (al primo giro crea anche il database D1), poi applica le migrazioni.
    Su Workers Builds: Build command vuoto, Deploy command `npm run deploy`.
-2. Dashboard → Worker `corsi` → scheda **Access** → **Protect this Worker behind Access** → **All traffic**.
-   Poi in Zero Trust → Access → Applications aggiungi alla policy le email di admin e coordinatori.
-3. Imposta la variabile `ADMIN_EMAIL` (Settings → Variables and Secrets).
+2. Settings → Variables and Secrets: `ADMIN_EMAIL` (testo) e `ADMIN_SETUP_CODE` (secret, un codice lungo a piacere).
+3. Apri il sito → "Primo accesso amministratore" → email, codice e la tua password.
 
-Il Worker legge l'identità verificata da `ctx.access`: senza Access attivo le API rispondono 403.
+## Accesso
+
+Login con email e password gestito dall'app (stesso schema di EMSyShift): password con PBKDF2,
+sessione di 7 giorni in un cookie httpOnly, nel database solo hash.
+
+- L'amministratore crea gli utenti da "Utenti" e invia loro il **link di attivazione** (7 giorni, uso singolo)
+  con cui scelgono la password. Lo stesso pulsante genera un link per reimpostare una password dimenticata.
+- `ADMIN_SETUP_CODE` serve anche a recuperare l'accesso amministratore. Eliminando il secret, quella via si chiude.

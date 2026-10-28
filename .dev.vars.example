@@ -1,3 +1,4 @@
-# Copia in .dev.vars per lo sviluppo locale (senza Cloudflare Access)
-DEV_USER_EMAIL=tua@email.it
+# Copia in .dev.vars per lo sviluppo locale.
+# Primo accesso: pagina di login → "Primo accesso amministratore" con questa email e questo codice.
 ADMIN_EMAIL=tua@email.it
+ADMIN_SETUP_CODE=un-codice-lungo-a-piacere

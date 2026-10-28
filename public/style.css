@@ -115,6 +115,12 @@ input, select, textarea {
 .azioni { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .errore { color: var(--no); }
 
+.accesso { max-width: 380px; margin: 40px auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+.accesso form { display: grid; gap: 12px; }
+.accesso h1 { margin-bottom: 4px; }
+.link-attivazione { display: flex; gap: 8px; }
+.link-attivazione input { flex: 1; min-width: 0; }
+
 @media (max-width: 560px) {
   .riga { grid-template-columns: 1fr; }
 }

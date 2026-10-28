@@ -16,6 +16,12 @@ async function api(metodo, percorso, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const dati = await res.json().catch(() => ({}));
+  if (res.status === 401 && io) {
+    // Sessione scaduta: si torna al login
+    io = null;
+    mostraIntestazione();
+    naviga();
+  }
   if (!res.ok) throw new Error(dati.errore || `Errore ${res.status}`);
   return dati;
 }
@@ -299,45 +305,155 @@ async function paginaUtenti() {
   app.innerHTML = `
     <div class="barra"><h1>Utenti</h1><button class="primario" id="nuovo">Nuovo utente</button></div>
     <div class="tabella"><table>
-      <thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th></tr></thead>
+      <thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Accesso</th><th></th></tr></thead>
       <tbody>${utenti.map((u) => `
         <tr class="cliccabile ${u.attivo ? '' : 'spento'}" data-id="${u.id}"><td>${esc(u.nome)}</td><td>${esc(u.email)}</td>
-        <td>${u.ruolo === 'admin' ? 'Amministratore' : 'Coordinatore'}</td></tr>`).join('')}
+        <td>${u.ruolo === 'admin' ? 'Amministratore' : 'Coordinatore'}</td>
+        <td>${u.in_attesa ? '<span class="etichetta forse">Da attivare</span>' : '<span class="etichetta si">Attivo</span>'}</td>
+        <td>${u.id === io.id ? '' : `<button class="piccolo" data-link="${u.id}">${u.in_attesa ? 'Link di attivazione' : 'Reimposta password'}</button>`}</td></tr>`).join('')}
       </tbody>
     </table></div>`;
 
   document.getElementById('nuovo').onclick = async () => {
-    if (await moduloESalva('Nuovo utente', CAMPI_UTENTE, { ruolo: 'coordinatore', attivo: true }, (d) => api('POST', '/utenti', d))) paginaUtenti();
+    let creato;
+    const ok = await moduloESalva('Nuovo utente', CAMPI_UTENTE, { ruolo: 'coordinatore', attivo: true },
+      async (d) => creato = await api('POST', '/utenti', d));
+    if (!ok) return;
+    await paginaUtenti();
+    mostraLinkAttivazione('Utente creato', creato.token);
   };
+  app.querySelectorAll('[data-link]').forEach((b) => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    const u = utenti.find((x) => x.id === Number(b.dataset.link));
+    if (!u.in_attesa && !confirm(`Generare un link per reimpostare la password di ${u.nome}? Quella attuale resta valida finché non usa il link.`)) return;
+    const { token } = await api('POST', `/utenti/${u.id}/attivazione`);
+    mostraLinkAttivazione(`Link per ${u.nome}`, token);
+  });
   app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = async () => {
     const u = utenti.find((x) => x.id === Number(tr.dataset.id));
     if (await moduloESalva('Modifica utente', CAMPI_UTENTE, u, (d) => api('PUT', `/utenti/${u.id}`, d))) paginaUtenti();
   });
 }
 
+function mostraLinkAttivazione(titolo, token) {
+  const link = `${location.origin}/#/attiva/${token}`;
+  dialogoForm.innerHTML = `
+    <h2>${esc(titolo)}</h2>
+    <p>Invia questo link alla persona: aprendolo sceglie la sua password. Vale 7 giorni e si usa una volta sola.</p>
+    <div class="link-attivazione"><input readonly value="${esc(link)}"><button type="button" id="copia">Copia</button></div>
+    <div class="azioni"><button value="ok" class="primario">Chiudi</button></div>`;
+  dialogoForm.querySelector('#copia').onclick = async (ev) => {
+    await navigator.clipboard.writeText(link);
+    ev.target.textContent = 'Copiato';
+  };
+  dialogo.onclose = null;
+  dialogo.showModal();
+}
+
+// ---------- Accesso ----------
+
+function paginaAccesso(titolo, campi, invio, piede = '') {
+  app.innerHTML = `
+    <div class="accesso"><form id="accesso">
+      <h1>${esc(titolo)}</h1>
+      ${campi.map((c) => campoHtml(c)).join('')}
+      <p class="errore" id="errore-accesso" hidden></p>
+      <button class="primario">Entra</button>
+      ${piede}
+    </form></div>`;
+  const form = document.getElementById('accesso');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const dati = Object.fromEntries(new FormData(form));
+    const errore = document.getElementById('errore-accesso');
+    try {
+      if ('conferma' in dati && dati.password !== dati.conferma) throw new Error('Le due password non coincidono');
+      entra(await invio(dati));
+    } catch (e) {
+      errore.textContent = e.message;
+      errore.hidden = false;
+    }
+  };
+}
+
+const CAMPI_NUOVA_PASSWORD = [
+  { nome: 'password', etichetta: 'Nuova password (almeno 8 caratteri)', tipo: 'password', obbligatorio: true, extra: 'minlength="8" autocomplete="new-password"' },
+  { nome: 'conferma', etichetta: 'Ripeti la password', tipo: 'password', obbligatorio: true, extra: 'minlength="8" autocomplete="new-password"' },
+];
+
+function paginaLogin() {
+  paginaAccesso('Accedi', [
+    { nome: 'email', etichetta: 'Email', tipo: 'email', obbligatorio: true, extra: 'autocomplete="username"' },
+    { nome: 'password', etichetta: 'Password', tipo: 'password', obbligatorio: true, extra: 'autocomplete="current-password"' },
+  ], (d) => api('POST', '/auth/login', d),
+  '<p class="muted">Password dimenticata? Chiedi all\'amministratore un nuovo link.<br><a href="#/primo-accesso">Primo accesso amministratore</a></p>');
+}
+
+function paginaPrimoAccesso() {
+  paginaAccesso('Primo accesso amministratore', [
+    { nome: 'email', etichetta: 'Email amministratore', tipo: 'email', obbligatorio: true, extra: 'autocomplete="username"' },
+    { nome: 'codice', etichetta: 'Codice di attivazione (ADMIN_SETUP_CODE)', tipo: 'password', obbligatorio: true },
+    ...CAMPI_NUOVA_PASSWORD,
+  ], (d) => api('POST', '/auth/primo-accesso', d), '<p><a href="#/accesso">Torna al login</a></p>');
+}
+
+function paginaAttiva(token) {
+  paginaAccesso('Scegli la tua password', CAMPI_NUOVA_PASSWORD, (d) => api('POST', '/auth/attiva', { ...d, token }));
+}
+
+async function cambiaPassword() {
+  await moduloESalva('Cambia password', [
+    { nome: 'attuale', etichetta: 'Password attuale', tipo: 'password', obbligatorio: true, extra: 'autocomplete="current-password"' },
+    { nome: 'nuova', etichetta: 'Nuova password (almeno 8 caratteri)', tipo: 'password', obbligatorio: true, extra: 'minlength="8" autocomplete="new-password"' },
+  ], {}, (d) => api('POST', '/auth/password', d));
+}
+
+function mostraIntestazione() {
+  document.getElementById('nav').hidden = !io;
+  document.getElementById('utente').hidden = !io;
+  if (!io) return;
+  document.getElementById('utente-nome').textContent = `${io.nome} · ${io.ruolo === 'admin' ? 'Amministratore' : 'Coordinatore'}`;
+  document.getElementById('nav-utenti').hidden = io.ruolo !== 'admin';
+}
+
+async function entra(utente) {
+  io = utente;
+  abilitazioni = await api('GET', '/abilitazioni');
+  mostraIntestazione();
+  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|istruttori|committenti|utenti)/)) location.hash = '#/corsi';
+  else naviga();
+}
+
 // ---------- Navigazione ----------
 
 async function naviga() {
   const percorso = location.hash.slice(1) || '/corsi';
+  let m;
+  if ((m = percorso.match(/^\/attiva\/([0-9a-f]+)$/))) return paginaAttiva(m[1]);
+  if (!io) return percorso === '/primo-accesso' ? paginaPrimoAccesso() : paginaLogin();
+
   document.querySelectorAll('header nav a').forEach((a) => a.classList.toggle('attivo', percorso.startsWith(a.getAttribute('href').slice(1))));
   try {
-    let m;
     if ((m = percorso.match(/^\/corso\/(\d+)$/))) await paginaCorso(Number(m[1]));
     else if (percorso.startsWith('/istruttori')) await paginaIstruttori();
     else if (percorso.startsWith('/committenti')) await paginaCommittenti();
     else if (percorso.startsWith('/utenti') && io.ruolo === 'admin') await paginaUtenti();
     else await paginaCorsi();
   } catch (e) {
-    app.innerHTML = `<p class="errore">${esc(e.message)}</p>`;
+    if (io) app.innerHTML = `<p class="errore">${esc(e.message)}</p>`; // senza io è già stato mostrato il login
   }
 }
 
-try {
-  [io, abilitazioni] = await Promise.all([api('GET', '/me'), api('GET', '/abilitazioni')]);
-  document.getElementById('utente').textContent = `${io.nome} · ${io.ruolo === 'admin' ? 'Amministratore' : 'Coordinatore'}`;
-  document.getElementById('nav-utenti').hidden = io.ruolo !== 'admin';
-  window.addEventListener('hashchange', naviga);
+window.addEventListener('hashchange', naviga);
+document.getElementById('cambia-password').onclick = cambiaPassword;
+document.getElementById('esci').onclick = async () => {
+  await api('POST', '/auth/logout');
+  io = null;
+  mostraIntestazione();
+  history.replaceState(null, '', '#/accesso');
   naviga();
-} catch (e) {
-  app.innerHTML = `<p class="errore">${esc(e.message)}</p>`;
-}
+};
+
+// Il link di attivazione apre una sessione nuova: non serve sapere chi era già collegato
+if (location.hash.startsWith('#/attiva/')) naviga();
+else api('GET', '/me').then(entra, () => naviga());
