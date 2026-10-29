@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { verificaSquadra } from '../src/regole.js';
+import { puoRicevere, verificaSquadra } from '../src/regole.js';
 
 const corso = { tipo: 'BLSD', istruttori_richiesti: 2 };
 
@@ -53,6 +53,25 @@ test('avvisi sul singolo istruttore', () => {
   assert.deepEqual(codici(verificaSquadra(corso, squadra)), [
     'DOPPIO_IMPEGNO', 'INATTIVO', 'NON_ABILITATO', 'NON_DIRETTORE', 'NON_DISPONIBILE', 'SENZA_RISPOSTA',
   ]);
+});
+
+test('corso AUSL: serve l\'albo formatori', () => {
+  const corsoAusl = { ...corso, categoria: 'ausl' };
+  const squadra = [
+    membro(1, 'sanitario', { ruolo: 'direttore', direttore: true }),
+    membro(2, 'sanitario'),
+  ];
+  squadra[1].istruttore.albo_ausl = 1;
+  assert.deepEqual(codici(verificaSquadra(corsoAusl, squadra)), ['NON_ALBO']);
+});
+
+test('chi riceve la richiesta', () => {
+  const i = { attivo: 1, albo_ausl: 0, abilitazioni: ['BLSD'] };
+  assert.equal(puoRicevere(i, { tipo: 'BLSD', categoria: 'volontari' }), true);
+  assert.equal(puoRicevere(i, { tipo: 'PTC', categoria: 'volontari' }), false);
+  assert.equal(puoRicevere(i, { tipo: 'BLSD', categoria: 'ausl' }), false);
+  assert.equal(puoRicevere({ ...i, albo_ausl: 1 }, { tipo: 'BLSD', categoria: 'ausl' }), true);
+  assert.equal(puoRicevere({ ...i, attivo: 0 }, { tipo: 'BLSD', categoria: 'volontari' }), false);
 });
 
 test('un direttore può fare da istruttore senza avvisi', () => {

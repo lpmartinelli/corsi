@@ -1,3 +1,5 @@
+import { linkWhatsApp, rigaCorso, sezioni, testoMessaggio } from '/messaggio.js';
+
 const app = document.getElementById('app');
 const dialogo = document.getElementById('dialogo');
 const dialogoForm = document.getElementById('dialogo-form');
@@ -89,12 +91,19 @@ async function moduloESalva(titolo, campi, valori, salva) {
 // ---------- Corsi ----------
 
 const STATI = [['bozza', 'Bozza'], ['richiesta', 'Richiesta inviata'], ['assegnato', 'Assegnato'], ['svolto', 'Svolto'], ['annullato', 'Annullato']];
+const CATEGORIE = [['volontari', 'Volontari del soccorso'], ['ausl', 'AUSL']];
+const nomeTipo = (c) => c.tipo + (c.retraining ? 'r' : '');
+const nomeCategoria = (c) => (c.categoria === 'ausl' ? 'AUSL' : 'Volontari') + (c.circuito ? ` · ${c.circuito}` : '') + (c.retraining ? ' · retraining' : '');
+const certificazioni = (i) => [i.irc && 'IRC', i.irccom && 'IRCcom'].filter(Boolean).join(' + ');
 
 async function campiCorso() {
   const [committenti, utenti] = await Promise.all([api('GET', '/committenti'), api('GET', '/utenti')]);
   return [
     { nome: 'data', etichetta: 'Data', tipo: 'date', obbligatorio: true },
+    { nome: 'categoria', etichetta: 'Categoria', tipo: 'select', opzioni: CATEGORIE },
+    { nome: 'circuito', etichetta: 'CoES / VdA', tipo: 'select', opzioni: [['', '—'], ['CoES', 'CoES'], ['VdA', 'VdA']] },
     { nome: 'tipo', etichetta: 'Tipo di corso', tipo: 'select', opzioni: abilitazioni.map((a) => [a.codice, a.codice]) },
+    { nome: 'retraining', etichetta: 'Retraining', tipo: 'checkbox' },
     { nome: 'ora_inizio', etichetta: 'Ora inizio', tipo: 'time' },
     { nome: 'ora_fine', etichetta: 'Ora fine', tipo: 'time' },
     { nome: 'sede', etichetta: 'Sede' },
@@ -112,27 +121,46 @@ async function paginaCorsi() {
   const corsi = await api('GET', passati ? `/corsi?a=${oggi}` : `/corsi?da=${oggi}`);
   if (passati) corsi.reverse();
 
+  // Per la richiesta di disponibilità si selezionano i corsi futuri; quelli in bozza sono preselezionati
+  const selezionabile = (c) => !passati && ['bozza', 'richiesta'].includes(c.stato);
   app.innerHTML = `
     <div class="barra">
       <h1>Corsi</h1>
       <div>
         <a class="bottone" href="${passati ? '#/corsi' : '#/corsi/passati'}">${passati ? 'Prossimi' : 'Passati'}</a>
+        ${passati ? '' : '<button id="richiedi">Richiedi disponibilità</button>'}
         <button class="primario" id="nuovo">Nuovo corso</button>
       </div>
     </div>
     <div class="tabella"><table>
-      <thead><tr><th>Data</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Squadra</th><th>Disponibili</th><th>Stato</th></tr></thead>
+      <thead><tr><th></th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Squadra</th><th>Disponibili</th><th>Stato</th></tr></thead>
       <tbody>${corsi.map((c) => `
         <tr class="cliccabile ${c.stato === 'annullato' ? 'spento' : ''}" data-id="${c.id}">
-          <td>${formatoData(c.data)}</td><td>${esc(c.tipo)}</td>
+          <td>${selezionabile(c) ? `<input type="checkbox" data-sel="${c.id}" ${c.stato === 'bozza' ? 'checked' : ''}>` : ''}</td>
+          <td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
           <td>${esc(c.ora_inizio || '')}${c.ora_fine ? '–' + esc(c.ora_fine) : ''}</td>
           <td>${esc(c.sede)}</td><td>${esc(c.committente)}</td>
           <td><span class="etichetta ${c.assegnati >= c.istruttori_richiesti ? 'si' : 'neutro'}">${c.assegnati}/${c.istruttori_richiesti}</span></td>
           <td>${c.disponibili}</td>
           <td>${esc(STATI.find(([v]) => v === c.stato)[1])}</td>
-        </tr>`).join('') || `<tr><td colspan="8" class="muted">Nessun corso</td></tr>`}
+        </tr>`).join('') || `<tr><td colspan="10" class="muted">Nessun corso</td></tr>`}
       </tbody>
     </table></div>`;
+
+  const selezionati = () => [...app.querySelectorAll('[data-sel]:checked')].map((x) => Number(x.dataset.sel));
+  const richiedi = document.getElementById('richiedi');
+  if (richiedi) {
+    const aggiorna = () => {
+      richiedi.textContent = `Richiedi disponibilità (${selezionati().length})`;
+      richiedi.disabled = !selezionati().length;
+    };
+    aggiorna();
+    app.querySelectorAll('[data-sel]').forEach((x) => {
+      x.onclick = (ev) => ev.stopPropagation();
+      x.onchange = aggiorna;
+    });
+    richiedi.onclick = () => location.hash = `#/nuova-richiesta/${selezionati().join(',')}`;
+  }
 
   app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => location.hash = `#/corso/${tr.dataset.id}`);
   document.getElementById('nuovo').onclick = async () => {
@@ -153,10 +181,11 @@ function disegnaCorso({ corso, candidati, avvisi }) {
   const squadra = candidati.filter((c) => c.ruolo);
   app.innerHTML = `
     <div class="barra">
-      <h1>${esc(corso.tipo)} · ${formatoData(corso.data)}</h1>
+      <h1>${esc(nomeTipo(corso))} · ${formatoData(corso.data)}</h1>
       <div><button id="modifica">Modifica</button> <button id="elimina">Elimina</button></div>
     </div>
     <div class="scheda">
+      <div><span>Categoria</span>${esc(nomeCategoria(corso))}</div>
       <div><span>Orario</span>${esc(corso.ora_inizio || '—')}${corso.ora_fine ? '–' + esc(corso.ora_fine) : ''}</div>
       <div><span>Sede</span>${esc(corso.sede || '—')}</div>
       <div><span>Committente</span>${esc(corso.committente || '—')}</div>
@@ -211,12 +240,174 @@ function disegnaCorso({ corso, candidati, avvisi }) {
 // Le regole complete sono sul server (src/regole.js); qui solo quelle sul singolo istruttore, per chiedere conferma prima
 function problemiCandidato(corso, c, ruolo) {
   const p = [];
-  if (!c.abilitato) p.push(`non abilitato ${corso.tipo}`);
+  if (!c.abilitazioni.includes(corso.tipo)) p.push(`non abilitato ${corso.tipo}`);
+  if (corso.categoria === 'ausl' && !c.albo_ausl) p.push('non iscritto all\'albo formatori AUSL');
   if (ruolo === 'direttore' && !c.direttore) p.push('non ha la qualifica di direttore');
   if (!c.disponibilita) p.push('non ha dato disponibilità');
   else if (c.disponibilita !== 'si') p.push(`ha risposto ${ETICHETTE_RISPOSTA[c.disponibilita].toUpperCase()}`);
   if (c.altri_stesso_giorno) p.push('già assegnato a un altro corso lo stesso giorno');
   return p;
+}
+
+// ---------- Richieste di disponibilità (invii) ----------
+
+async function paginaInvii() {
+  const invii = await api('GET', '/invii');
+  app.innerHTML = `
+    <div class="barra"><h1>Richieste di disponibilità</h1></div>
+    <p class="muted">Per una nuova richiesta seleziona i corsi nella pagina <a href="#/corsi">Corsi</a> e premi "Richiedi disponibilità".</p>
+    <div class="tabella"><table>
+      <thead><tr><th>Creata</th><th>Da</th><th>Corsi</th><th>Periodo</th><th>Messaggi inviati</th></tr></thead>
+      <tbody>${invii.map((v) => `
+        <tr class="cliccabile" data-id="${v.id}">
+          <td>${formatoData(v.creato_il.slice(0, 10))}</td><td>${esc(v.creato_da)}</td><td>${v.corsi}</td>
+          <td>${v.dal ? `${formatoData(v.dal)} – ${formatoData(v.al)}` : '—'}</td>
+          <td><span class="etichetta ${v.inviate === v.richieste ? 'si' : 'neutro'}">${v.inviate}/${v.richieste}</span></td>
+        </tr>`).join('') || `<tr><td colspan="5" class="muted">Nessuna richiesta</td></tr>`}
+      </tbody>
+    </table></div>`;
+  app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => location.hash = `#/invio/${tr.dataset.id}`);
+}
+
+const FILTRI_IRC = [['', 'Tutti gli istruttori'], ['irc', 'IRC'], ['irccom', 'IRCcom'], ['entrambi', 'IRC e IRCcom (entrambi)']];
+const FILTRI_CIRCUITO = [['', 'Tutti i corsi'], ['CoES', 'Solo CoES'], ['VdA', 'Solo VdA']];
+
+/** Scelta dei destinatari: tabella istruttori × corsi, già spuntata con la proposta delle regole e modificabile a mano. */
+async function paginaNuovaRichiesta(ids) {
+  const { corsi, istruttori } = await api('GET', `/invii/anteprima?corsi=${ids.join(',')}`);
+  if (!corsi.length) {
+    app.innerHTML = '<p class="errore">Nessun corso valido selezionato.</p><p><a href="#/corsi">Torna ai corsi</a></p>';
+    return;
+  }
+  const chiave = (i, c) => `${i.id}:${c.id}`;
+  const idoneo = (i, c) => i.idonei.includes(c.id);
+  const proposta = () => new Set(istruttori.flatMap((i) => corsi.filter((c) => idoneo(i, c)).map((c) => chiave(i, c))));
+  const stato = { spunte: proposta(), irc: '', circuito: '' };
+
+  const visibiliIstruttori = () => istruttori.filter((i) => ({
+    '': true, irc: i.irc, irccom: i.irccom, entrambi: i.irc && i.irccom,
+  })[stato.irc]);
+  const visibiliCorsi = () => corsi.filter((c) => !stato.circuito || c.circuito === stato.circuito);
+  const scelta = () => visibiliIstruttori()
+    .map((i) => ({ istruttore: i, corsi: visibiliCorsi().filter((c) => stato.spunte.has(chiave(i, c))) }))
+    .filter((d) => d.corsi.length);
+
+  function disegna() {
+    const righe = visibiliIstruttori();
+    const colonne = visibiliCorsi();
+    const destinatari = scelta();
+    app.innerHTML = `
+      <div class="barra">
+        <h1>Nuova richiesta di disponibilità</h1>
+        <button class="primario" id="crea" ${destinatari.length ? '' : 'disabled'}>Crea ${destinatari.length} messaggi</button>
+      </div>
+      <p class="muted">Le spunte propongono chi può tenere ogni corso (abilitazione, albo AUSL). Puoi toglierle o aggiungerne:
+        ogni istruttore riceverà un messaggio con i soli corsi spuntati.</p>
+      <div class="filtri">
+        <select id="f-irc">${FILTRI_IRC.map(([v, t]) => `<option value="${v}" ${v === stato.irc ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <select id="f-circuito">${FILTRI_CIRCUITO.map(([v, t]) => `<option value="${v}" ${v === stato.circuito ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <button id="proposta">Ripristina proposta</button>
+        <button id="svuota">Togli tutte le spunte</button>
+      </div>
+      <div class="tabella"><table class="matrice">
+        <thead><tr><th>Istruttore</th>${colonne.map((c) => `
+          <th><label class="check"><input type="checkbox" data-col="${c.id}" ${righe.every((i) => stato.spunte.has(chiave(i, c))) && righe.length ? 'checked' : ''}>
+            ${esc(rigaCorso(c))}</label><span class="muted">${esc(nomeCategoria(c))}</span></th>`).join('')}</tr></thead>
+        <tbody>${righe.map((i) => `
+          <tr>
+            <th><label class="check"><input type="checkbox" data-riga="${i.id}" ${colonne.every((c) => stato.spunte.has(chiave(i, c))) ? 'checked' : ''}>
+              ${esc(nomeCompleto(i))}</label>
+              <span class="muted">${esc([certificazioni(i), i.albo_ausl ? 'Albo AUSL' : '', i.abilitazioni.join(' ')].filter(Boolean).join(' · '))}
+              · ${i.giornate} gg</span></th>
+            ${colonne.map((c) => `<td class="${idoneo(i, c) ? '' : 'fuori'}" title="${idoneo(i, c) ? '' : 'Fuori dalle regole (abilitazione o albo AUSL)'}">
+              <input type="checkbox" data-cella="${chiave(i, c)}" ${stato.spunte.has(chiave(i, c)) ? 'checked' : ''}></td>`).join('')}
+          </tr>`).join('') || `<tr><td colspan="${colonne.length + 1}" class="muted">Nessun istruttore con questo filtro</td></tr>`}
+        </tbody>
+      </table></div>`;
+
+    const imposta = (chiavi, valore) => {
+      chiavi.forEach((k) => (valore ? stato.spunte.add(k) : stato.spunte.delete(k)));
+      disegna();
+    };
+    document.getElementById('f-irc').onchange = (ev) => { stato.irc = ev.target.value; disegna(); };
+    document.getElementById('f-circuito').onchange = (ev) => { stato.circuito = ev.target.value; disegna(); };
+    document.getElementById('proposta').onclick = () => { stato.spunte = proposta(); disegna(); };
+    document.getElementById('svuota').onclick = () => { stato.spunte.clear(); disegna(); };
+    app.querySelectorAll('[data-cella]').forEach((x) => x.onchange = () => imposta([x.dataset.cella], x.checked));
+    app.querySelectorAll('[data-riga]').forEach((x) => x.onchange = () =>
+      imposta(colonne.map((c) => `${x.dataset.riga}:${c.id}`), x.checked));
+    app.querySelectorAll('[data-col]').forEach((x) => x.onchange = () =>
+      imposta(righe.map((i) => `${i.id}:${x.dataset.col}`), x.checked));
+
+    document.getElementById('crea').onclick = async () => {
+      const fuori = destinatari.flatMap((d) => d.corsi.filter((c) => !idoneo(d.istruttore, c)).map((c) => `${nomeCompleto(d.istruttore)}: ${rigaCorso(c)}`));
+      if (fuori.length && !confirm(`Queste scelte sono fuori dalle regole (abilitazione o albo AUSL):\n• ${fuori.join('\n• ')}\n\nProcedere comunque?`)) return;
+      try {
+        const { invio } = await api('POST', '/invii', {
+          destinatari: destinatari.map((d) => ({ istruttore_id: d.istruttore.id, corsi: d.corsi.map((c) => c.id) })),
+        });
+        location.hash = `#/invio/${invio.id}`;
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+  }
+  disegna();
+}
+
+async function paginaInvio(id) {
+  const { invio, corsi, richieste } = await api('GET', `/invii/${id}`);
+  const perId = new Map(corsi.map((c) => [c.id, c]));
+  const messaggio = (r) => testoMessaggio(r, r.corsi.map((cid) => perId.get(cid)), `${location.origin}/d/${r.token}`, r.scade_il);
+
+  app.innerHTML = `
+    <div class="barra">
+      <h1>Richiesta del ${formatoData(invio.creato_il.slice(0, 10))}</h1>
+      <button id="elimina">Elimina</button>
+    </div>
+    <div class="scheda" style="display:block">
+      ${sezioni(corsi).map((s) => `<p><strong>${esc(s.titolo)}</strong><br>${s.corsi.map((c) => esc(rigaCorso(c))).join('<br>')}</p>`).join('')}
+    </div>
+    <h2>Messaggi</h2>
+    <p class="muted">Premi WhatsApp per aprire la chat con il messaggio già scritto: resta solo da inviarlo. Ogni link vale 30 giorni.</p>
+    <div class="tabella"><table>
+      <thead><tr><th>Istruttore</th><th>Corsi</th><th>Risposte</th><th>Inviato</th><th></th></tr></thead>
+      <tbody>${richieste.map((r) => `
+        <tr>
+          <td>${esc(nomeCompleto(r))}${r.telefono ? '' : ' <span class="etichetta forse">Senza telefono</span>'}</td>
+          <td>${r.corsi.length}</td>
+          <td><span class="etichetta ${r.risposte === r.corsi.length ? 'si' : 'neutro'}">${r.risposte}/${r.corsi.length}</span></td>
+          <td>${r.inviata_il ? '✓' : ''}</td>
+          <td>
+            ${linkWhatsApp(r.telefono, '') ? `<button class="piccolo primario" data-wa="${r.id}">WhatsApp</button>` : ''}
+            <button class="piccolo" data-copia="${r.id}">Copia messaggio</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+
+  const richiesta = (el, attr) => richieste.find((r) => r.id === Number(el.dataset[attr]));
+  const segnaInviata = async (r) => {
+    if (!r.inviata_il) await api('POST', `/richieste/${r.id}/inviata`);
+  };
+  app.querySelectorAll('[data-wa]').forEach((b) => b.onclick = async () => {
+    const r = richiesta(b, 'wa');
+    window.open(linkWhatsApp(r.telefono, messaggio(r)), '_blank', 'noopener');
+    await segnaInviata(r);
+    paginaInvio(id);
+  });
+  app.querySelectorAll('[data-copia]').forEach((b) => b.onclick = async () => {
+    const r = richiesta(b, 'copia');
+    await navigator.clipboard.writeText(messaggio(r));
+    await segnaInviata(r);
+    b.textContent = 'Copiato';
+    setTimeout(() => paginaInvio(id), 800);
+  });
+  document.getElementById('elimina').onclick = async () => {
+    if (!confirm('Eliminare questa richiesta? I link smetteranno di funzionare; le disponibilità già date restano.')) return;
+    await api('DELETE', `/invii/${id}`);
+    location.hash = '#/richieste';
+  };
 }
 
 // ---------- Istruttori ----------
@@ -228,6 +419,9 @@ function campiIstruttore() {
     { nome: 'telefono', etichetta: 'Telefono (WhatsApp)', tipo: 'tel', extra: 'placeholder="+39 333 1234567"' },
     { nome: 'profilo', etichetta: 'Profilo', tipo: 'select', opzioni: [['sanitario', 'Sanitario'], ['tecnico', 'Tecnico']] },
     { nome: 'direttore', etichetta: 'Qualifica di direttore', tipo: 'checkbox' },
+    { nome: 'albo_ausl', etichetta: 'Iscritto all\'albo formatori AUSL', tipo: 'checkbox' },
+    { nome: 'irc', etichetta: 'Istruttore IRC', tipo: 'checkbox' },
+    { nome: 'irccom', etichetta: 'Istruttore IRCcom', tipo: 'checkbox' },
     { nome: 'abilitazioni', etichetta: 'Abilitazioni', tipo: 'checks', opzioni: abilitazioni.map((a) => [a.codice, a.codice]) },
     { nome: 'attivo', etichetta: 'Attivo', tipo: 'checkbox' },
     { nome: 'note', etichetta: 'Note', tipo: 'textarea' },
@@ -239,15 +433,17 @@ async function paginaIstruttori() {
   app.innerHTML = `
     <div class="barra"><h1>Istruttori</h1><button class="primario" id="nuovo">Nuovo istruttore</button></div>
     <div class="tabella"><table>
-      <thead><tr><th>Nome</th><th>Telefono</th><th>Profilo</th><th>Direttore</th><th>Abilitazioni</th><th>Giornate 12 mesi</th></tr></thead>
+      <thead><tr><th>Nome</th><th>Telefono</th><th>Profilo</th><th>Direttore</th><th>Albo AUSL</th><th>IRC</th><th>Abilitazioni</th><th>Giornate 12 mesi</th></tr></thead>
       <tbody>${istruttori.map((i) => `
         <tr class="cliccabile ${i.attivo ? '' : 'spento'}" data-id="${i.id}">
           <td>${esc(nomeCompleto(i))}</td><td>${esc(i.telefono)}</td>
           <td>${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}</td>
           <td>${i.direttore ? '✓' : ''}</td>
+          <td>${i.albo_ausl ? '✓' : ''}</td>
+          <td>${esc(certificazioni(i))}</td>
           <td>${i.abilitazioni.map((a) => `<span class="etichetta neutro">${esc(a)}</span>`).join(' ')}</td>
           <td>${i.giornate}</td>
-        </tr>`).join('') || `<tr><td colspan="6" class="muted">Nessun istruttore</td></tr>`}
+        </tr>`).join('') || `<tr><td colspan="8" class="muted">Nessun istruttore</td></tr>`}
       </tbody>
     </table></div>`;
 
@@ -420,7 +616,7 @@ async function entra(utente) {
   io = utente;
   abilitazioni = await api('GET', '/abilitazioni');
   mostraIntestazione();
-  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|istruttori|committenti|utenti)/)) location.hash = '#/corsi';
+  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|invio|nuova-richiesta|richieste|istruttori|committenti|utenti)/)) location.hash = '#/corsi';
   else naviga();
 }
 
@@ -435,6 +631,9 @@ async function naviga() {
   document.querySelectorAll('header nav a').forEach((a) => a.classList.toggle('attivo', percorso.startsWith(a.getAttribute('href').slice(1))));
   try {
     if ((m = percorso.match(/^\/corso\/(\d+)$/))) await paginaCorso(Number(m[1]));
+    else if ((m = percorso.match(/^\/invio\/(\d+)$/))) await paginaInvio(Number(m[1]));
+    else if ((m = percorso.match(/^\/nuova-richiesta\/([\d,]+)$/))) await paginaNuovaRichiesta(m[1].split(',').map(Number));
+    else if (percorso.startsWith('/richieste')) await paginaInvii();
     else if (percorso.startsWith('/istruttori')) await paginaIstruttori();
     else if (percorso.startsWith('/committenti')) await paginaCommittenti();
     else if (percorso.startsWith('/utenti') && io.ruolo === 'admin') await paginaUtenti();

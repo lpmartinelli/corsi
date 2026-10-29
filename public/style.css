@@ -119,6 +119,21 @@ input, select, textarea {
 .accesso { max-width: 380px; margin: 40px auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
 .accesso form { display: grid; gap: 12px; }
 .accesso h1 { margin-bottom: 4px; }
+.filtri { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.matrice th { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); vertical-align: top; }
+.matrice th .muted { display: block; font-weight: 400; font-size: 12px; }
+.matrice td { text-align: center; }
+.matrice td.fuori { background: var(--warn-bg); }
+.matrice tbody th { position: sticky; left: 0; background: var(--card); }
+
+.disponibilita { max-width: 560px; }
+.corso-disp { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.corso-disp .scelte { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.corso-disp .scelte button { padding: 10px 6px; }
+.corso-disp .scelte button.scelta { font-weight: 600; border-color: currentColor; }
+.corso-disp .esito { margin: 6px 0 0; font-size: 13px; }
+button:disabled { opacity: .5; cursor: default; }
+
 .link-attivazione { display: flex; gap: 8px; }
 .link-attivazione input { flex: 1; min-width: 0; }
 

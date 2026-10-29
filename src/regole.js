@@ -3,9 +3,16 @@
 
 const RISPOSTE = { no: 'ha risposto NO', forse: 'ha risposto FORSE' };
 
+/** Chi riceve la richiesta di disponibilità per un corso: attivo, abilitato e, per i corsi AUSL, iscritto all'albo. */
+export function puoRicevere(istruttore, corso) {
+  return Boolean(istruttore.attivo)
+    && istruttore.abilitazioni.includes(corso.tipo)
+    && (corso.categoria !== 'ausl' || Boolean(istruttore.albo_ausl));
+}
+
 /**
- * @param corso   { tipo, istruttori_richiesti }
- * @param squadra [{ istruttore: { id, nome, cognome, profilo, direttore, attivo, abilitazioni[] },
+ * @param corso   { tipo, categoria, istruttori_richiesti }
+ * @param squadra [{ istruttore: { id, nome, cognome, profilo, direttore, attivo, albo_ausl, abilitazioni[] },
  *                   ruolo, disponibilita: 'si'|'no'|'forse'|null, altriCorsiStessoGiorno }]
  * @returns [{ codice, messaggio, istruttore_id? }]
  */
@@ -43,6 +50,7 @@ export function verificaSquadra(corso, squadra) {
 
     if (!i.attivo) avviso('INATTIVO', 'istruttore non attivo');
     if (!i.abilitazioni.includes(corso.tipo)) avviso('NON_ABILITATO', `non abilitato ${corso.tipo}`);
+    if (corso.categoria === 'ausl' && !i.albo_ausl) avviso('NON_ALBO', 'non iscritto all\'albo formatori AUSL');
     if (m.ruolo === 'direttore' && !i.direttore) avviso('NON_DIRETTORE', 'non ha la qualifica di direttore');
     if (m.disponibilita == null) avviso('SENZA_RISPOSTA', 'non ha dato disponibilità');
     else if (RISPOSTE[m.disponibilita]) avviso('NON_DISPONIBILE', RISPOSTE[m.disponibilita]);
