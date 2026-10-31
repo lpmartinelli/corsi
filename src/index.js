@@ -63,12 +63,12 @@ async function salvaIstruttore(env, id, body) {
 
 async function salvaCommittente(env, id, body) {
   richiedi(body, ['nome']);
-  const valori = [body.nome.trim(), body.referente || null, body.telefono || null, body.email || null, body.note || null];
+  const valori = [body.nome.trim(), body.referente || null, body.indirizzo || null, body.telefono || null, body.email || null, body.note || null];
   if (id) {
-    await env.DB.prepare('UPDATE committenti SET nome=?, referente=?, telefono=?, email=?, note=? WHERE id=?').bind(...valori, id).run();
+    await env.DB.prepare('UPDATE committenti SET nome=?, referente=?, indirizzo=?, telefono=?, email=?, note=? WHERE id=?').bind(...valori, id).run();
     return { id };
   }
-  return env.DB.prepare('INSERT INTO committenti (nome, referente, telefono, email, note) VALUES (?, ?, ?, ?, ?) RETURNING id')
+  return env.DB.prepare('INSERT INTO committenti (nome, referente, indirizzo, telefono, email, note) VALUES (?, ?, ?, ?, ?, ?) RETURNING id')
     .bind(...valori).first();
 }
 
@@ -380,7 +380,7 @@ async function listaPreventivi(env) {
 }
 
 async function dettaglioPreventivo(env, id) {
-  const preventivo = await env.DB.prepare(`SELECT p.*, cm.nome AS committente, cm.referente, cm.email, cm.telefono
+  const preventivo = await env.DB.prepare(`SELECT p.*, cm.nome AS committente, cm.referente, cm.indirizzo, cm.email, cm.telefono
     FROM preventivi p LEFT JOIN committenti cm ON cm.id = p.committente_id WHERE p.id = ?`).bind(id).first();
   if (!preventivo) throw new ErroreRichiesta('Preventivo non trovato', 404);
   return { ...preventivo, righe: JSON.parse(preventivo.righe) };
@@ -408,6 +408,32 @@ async function salvaPreventivo(env, utente, id, body) {
     VALUES (?1, (SELECT coalesce(max(progressivo), 0) + 1 FROM preventivi WHERE anno = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
     RETURNING id`).bind(anno, ...valori, utente.id).first());
   return dettaglioPreventivo(env, id);
+}
+
+// ---------- Impostazioni ----------
+
+const CHIAVI_IMPOSTAZIONI = ['nome', 'sottotitolo', 'citta', 'firma', 'piede', 'logo', 'oggetto', 'premessa', 'voce', 'prezzo', 'condizioni'];
+// Il logo arriva già ridimensionato dal browser; il limite tiene la riga ben sotto quello di D1
+const MAX_LOGO = 1_000_000;
+
+async function leggiImpostazioni(env) {
+  const { results } = await env.DB.prepare('SELECT chiave, valore FROM impostazioni').all();
+  return Object.fromEntries(results.map((r) => [r.chiave, r.valore]));
+}
+
+/** Salva solo le chiavi presenti nel body: un valore vuoto la azzera. */
+async function salvaImpostazioni(env, body) {
+  const voci = Object.entries(body).filter(([k]) => CHIAVI_IMPOSTAZIONI.includes(k))
+    .map(([k, v]) => [k, v === null || v === '' ? null : String(v)]);
+  for (const [k, v] of voci) {
+    if (k === 'logo' && v && !/^data:image\/(png|jpeg|webp);base64,/.test(v)) throw new ErroreRichiesta('Logo non valido: serve un\'immagine PNG, JPEG o WebP');
+    if (v && v.length > (k === 'logo' ? MAX_LOGO : 10_000)) throw new ErroreRichiesta(k === 'logo' ? 'Logo troppo grande' : `Testo troppo lungo: ${k}`);
+  }
+  if (voci.length) {
+    await env.DB.batch(voci.map(([k, v]) => env.DB.prepare(`INSERT INTO impostazioni (chiave, valore) VALUES (?, ?)
+      ON CONFLICT (chiave) DO UPDATE SET valore = excluded.valore`).bind(k, v)));
+  }
+  return leggiImpostazioni(env);
 }
 
 // ---------- Utenti (solo admin) ----------
@@ -560,6 +586,9 @@ const rotte = [
     await env.DB.prepare('DELETE FROM preventivi WHERE id = ?').bind(Number(p[1])).run();
     return { ok: true };
   }],
+
+  ['GET', /^\/api\/impostazioni$/, ({ env }) => leggiImpostazioni(env)],
+  ['PUT', /^\/api\/impostazioni$/, ({ env, body }) => salvaImpostazioni(env, body), 'admin'],
 
   ['GET', /^\/api\/utenti$/, async ({ env }) => (await env.DB.prepare('SELECT * FROM utenti ORDER BY nome').all()).results.map(pubblico)],
   ['POST', /^\/api\/utenti$/, ({ env, body }) => salvaUtente(env, null, body), 'admin'],

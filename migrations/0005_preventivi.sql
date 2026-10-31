@@ -1,4 +1,4 @@
--- Preventivi per i committenti, stampati come lettera. Numero = progressivo/anno (es. 3/2026).
+-- Preventivi per i committenti. Numero = progressivo/anno (es. 3/2026).
 -- Le righe sono un array JSON di { descrizione, quantita, prezzo } (prezzo unitario, IVA esclusa).
 CREATE TABLE preventivi (
   id INTEGER PRIMARY KEY,
@@ -6,12 +6,11 @@ CREATE TABLE preventivi (
   progressivo INTEGER NOT NULL,
   committente_id INTEGER REFERENCES committenti(id),
   data TEXT NOT NULL,              -- YYYY-MM-DD
+  validita_giorni INTEGER NOT NULL DEFAULT 30,
   oggetto TEXT,
-  premessa TEXT,                   -- testo prima delle voci
   righe TEXT NOT NULL DEFAULT '[]',
-  iva REAL,                        -- percentuale; NULL = "+ iva se dovuta"
-  condizioni TEXT,                 -- testo dopo le voci: sede, attestati, saluti
-  note TEXT,                       -- interne, non stampate
+  iva REAL NOT NULL DEFAULT 22,    -- percentuale; 0 per le operazioni esenti (motivo nelle note)
+  note TEXT,
   stato TEXT NOT NULL DEFAULT 'bozza'
     CHECK (stato IN ('bozza', 'inviato', 'accettato', 'rifiutato')),
   creato_da INTEGER REFERENCES utenti(id),

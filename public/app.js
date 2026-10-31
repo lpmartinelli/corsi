@@ -570,6 +570,7 @@ async function paginaIstruttori() {
 const CAMPI_COMMITTENTE = [
   { nome: 'nome', etichetta: 'Nome', obbligatorio: true },
   { nome: 'referente', etichetta: 'Referente' },
+  { nome: 'indirizzo', etichetta: 'Indirizzo (per i preventivi)', extra: 'placeholder="Via A. Crétier, n.2 - 11100 Aosta"' },
   { nome: 'telefono', etichetta: 'Telefono', tipo: 'tel' },
   { nome: 'email', etichetta: 'Email', tipo: 'email' },
   { nome: 'note', etichetta: 'Note', tipo: 'textarea' },
@@ -600,23 +601,16 @@ async function paginaCommittenti() {
 
 const STATI_PREVENTIVO = [['bozza', 'Bozza'], ['inviato', 'Inviato'], ['accettato', 'Accettato'], ['rifiutato', 'Rifiutato']];
 const CLASSI_STATO_PREVENTIVO = { bozza: 'neutro', inviato: 'forse', accettato: 'si', rifiutato: 'no' };
-const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
+// Simbolo davanti, come nelle lettere in uso: € 750,00
+const euro = (n) => '€ ' + (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const numeroPreventivo = (p) => `${p.progressivo}/${p.anno}`;
 const centesimi = (n) => Math.round(n * 100) / 100;
 const OPZIONI_IVA = [['', '+ iva se dovuta'], ['22', 'IVA 22%'], ['0', 'Esente IVA']];
 const conIva = (p) => p.iva === null || p.iva === '';
 
-// Testi predefiniti di un nuovo preventivo, dal modello di lettera in uso; si modificano nel singolo preventivo
-const PREMESSA_PREDEFINITA = 'In relazione alla richiesta pervenuta allo scrivente, in merito alla proposta di formazione ovvero sulla possibilità '
-  + 'o meno di effettuare corsi di formazione del Vs. personale, si propone quanto segue:';
-const CONDIZIONI_PREDEFINITE = `Sedi del corso: sarà a cura dell'ente richiedente provvedere alla fornitura dell'aula attrezzata.
-
-Al termine del corso, i partecipanti che avranno superato l'esame teorico-pratico riceveranno l'attestato di qualificazione.
-
-Il nostro Centro di Formazione provvederà a comunicare all'AUSL della Valle d'Aosta l'avvenuto corso con relativo elenco del personale certificato ai fini dell'autorizzazione regionale.
-
-A disposizione per ogni eventuale richiesta di chiarimenti e in attesa di un gradito riscontro alla presente, si porgono distinti saluti.`;
-const voceDocenza = (tipo) => `Costo docenza previsto per 1 modulo fino a 18 allievi ${tipo}`;
+// Intestazione, firma, piede, logo e testi predefiniti stanno nelle impostazioni (pagina Impostazioni)
+const voceDocenza = (imp, tipo) => (imp.voce || '').replaceAll('{tipo}', tipo);
+const righeTesto = (s) => (s || '').split('\n').map(esc).join('<br>');
 
 function totaliPreventivo(p) {
   const imponibile = centesimi(p.righe.reduce((s, r) => s + (Number(r.quantita) || 0) * (Number(r.prezzo) || 0), 0));
@@ -644,11 +638,12 @@ async function paginaPreventivi() {
 
 /** Editor del preventivo: dati generali, voci con quantità e prezzo, totali aggiornati mentre si scrive. */
 async function paginaPreventivo(id) {
-  const [committenti, salvato] = await Promise.all([api('GET', '/committenti'), id ? api('GET', `/preventivi/${id}`) : null]);
+  const [committenti, imp, salvato] = await Promise.all([api('GET', '/committenti'), api('GET', '/impostazioni'),
+    id ? api('GET', `/preventivi/${id}`) : null]);
   const p = salvato || {
-    data: new Date().toISOString().slice(0, 10), iva: '', stato: 'bozza', oggetto: 'proposta corsi di formazione BLSD',
-    premessa: PREMESSA_PREDEFINITA, condizioni: CONDIZIONI_PREDEFINITE,
-    righe: [{ descrizione: voceDocenza('BLSD'), quantita: 1, prezzo: 750 }],
+    data: new Date().toISOString().slice(0, 10), iva: '', stato: 'bozza', oggetto: imp.oggetto,
+    premessa: imp.premessa, condizioni: imp.condizioni,
+    righe: [{ descrizione: voceDocenza(imp, 'BLSD'), quantita: 1, prezzo: imp.prezzo ?? '' }],
   };
   const righe = p.righe;
   const campi = [
@@ -679,7 +674,7 @@ async function paginaPreventivo(id) {
       <thead><tr><th>Descrizione</th><th>Quantità</th><th>Prezzo unitario (€)</th><th>Importo</th><th></th></tr></thead>
       <tbody id="voci"></tbody>
     </table></div>
-    <datalist id="voci-suggerite">${abilitazioni.map((a) => `<option value="${esc(voceDocenza(a.codice))}">`).join('')}</datalist>
+    <datalist id="voci-suggerite">${abilitazioni.map((a) => `<option value="${esc(voceDocenza(imp, a.codice))}">`).join('')}</datalist>
     <div class="piede-preventivo"><button id="aggiungi">Aggiungi voce</button><div id="totali"></div></div>
     <form id="preventivo-fine" class="modulo-preventivo">${campiFinali.map((c) => campoHtml(c, p[c.nome])).join('')}</form>`;
 
@@ -741,7 +736,7 @@ async function paginaPreventivo(id) {
   document.getElementById('stampa').onclick = async () => {
     const nuovo = await salva();
     if (!nuovo) return;
-    stampaPreventivo(nuovo);
+    await stampaPreventivo(nuovo, imp);
     if (salvato) paginaPreventivo(nuovo.id);
     else location.hash = `#/preventivo/${nuovo.id}`;
   };
@@ -755,30 +750,144 @@ async function paginaPreventivo(id) {
 }
 
 /** Documento da stampare (o salvare in PDF dal dialogo di stampa del browser). */
-function stampaPreventivo(p) {
+async function stampaPreventivo(p, imp) {
   const t = totaliPreventivo(p);
   // Con una sola voce da 1 basta la descrizione; altrimenti si mostra il conto di ogni voce
   const dettaglio = p.righe.length > 1 || p.righe.some((r) => r.quantita !== 1);
   const totale = conIva(p)
-    ? `${euro(t.imponibile)} + iva se dovuta`
-    : p.iva ? `${euro(t.imponibile)} + IVA ${p.iva.toLocaleString('it-IT')}% (${euro(t.iva)}) = ${euro(t.totale)}` : `${euro(t.imponibile)} esente IVA`;
+    ? `<strong>${euro(t.imponibile)} + iva</strong> se dovuta`
+    : p.iva ? `<strong>${euro(t.imponibile)} + IVA ${p.iva.toLocaleString('it-IT')}% (${euro(t.iva)}) = ${euro(t.totale)}</strong>`
+      : `<strong>${euro(t.imponibile)}</strong> esente IVA`;
+  // Paragrafi separati da una riga vuota; "Etichetta: testo" diventa un punto dell'elenco, come "Sedi del corso:"
+  const paragrafi = (p.condizioni || '').split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+  const condizioni = paragrafi.map((s, i) => {
+    const punto = s.match(/^([^:\n]{2,40}):\s*([\s\S]*)$/);
+    if (punto) return `<ul class="elenco"><li><strong>${esc(punto[1])}:</strong> ${esc(punto[2])}</li></ul>`;
+    return `<p class="${i === paragrafi.length - 1 ? 'saluti' : 'paragrafo'}">${esc(s)}</p>`;
+  }).join('');
+  const dataLunga = new Date(p.data + 'T12:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
   let foglio = document.getElementById('foglio-stampa');
   if (!foglio) {
     foglio = document.createElement('div');
     foglio.id = 'foglio-stampa';
     document.body.append(foglio);
   }
+  const destinatario = [p.referente, p.committente].filter(Boolean);
   foglio.innerHTML = `
-    <p class="intestazione-lettera">Preventivo n. ${numeroPreventivo(p)}<br>${new Date(p.data + 'T12:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-    ${p.committente ? `<p class="destinatario">Spett.le<br><strong>${esc(p.committente)}</strong>
-      ${p.referente ? `<br>Alla c.a. di ${esc(p.referente)}` : ''}${p.email ? `<br>${esc(p.email)}` : ''}</p>` : ''}
-    ${p.oggetto ? `<p class="oggetto"><strong>Oggetto:</strong> ${esc(p.oggetto)}</p>` : ''}
-    ${p.premessa ? `<p class="testo">${esc(p.premessa)}</p>` : ''}
-    <ul class="voci">${p.righe.map((r) => `<li>${esc(r.descrizione)}${dettaglio
-      ? ` – ${r.quantita !== 1 ? `${r.quantita.toLocaleString('it-IT')} × ${euro(r.prezzo)} = ` : ''}${euro(r.quantita * r.prezzo)}` : ''}</li>`).join('')}</ul>
-    <p class="totale">Costo complessivo docenti: ${totale}</p>
-    ${p.condizioni ? `<p class="testo">${esc(p.condizioni)}</p>` : ''}`;
+    <header class="mittente">
+      <div><div class="nome">${esc(imp.nome)}</div><div>${esc(imp.sottotitolo)}</div></div>
+      ${imp.logo ? `<img class="logo" src="${esc(imp.logo)}" alt="">` : ''}
+    </header>
+    ${destinatario.length ? `<div class="destinatario"><span class="spett">Spett.</span><div>
+      ${destinatario.map((r, i) => `<div class="${i === destinatario.length - 1 ? 'ente' : 'persona'}">${esc(r)}</div>`).join('')}
+      ${p.indirizzo ? `<div class="indirizzo">${esc(p.indirizzo)}</div>` : ''}</div></div>` : ''}
+    ${p.oggetto ? `<p class="oggetto">Oggetto: ${esc(p.oggetto)}</p>` : ''}
+    ${p.premessa ? `<p class="premessa">${esc(p.premessa)}</p>` : ''}
+    <ul class="elenco voci">${p.righe.map((r, i) => `<li><strong>${esc(r.descrizione)}</strong>${dettaglio
+      ? ` – ${r.quantita !== 1 ? `${r.quantita.toLocaleString('it-IT')} × ${euro(r.prezzo)} = ` : ''}${euro(r.quantita * r.prezzo)}` : ''}
+      ${i === p.righe.length - 1 ? `<br><span class="sottolineato">Costo complessivo docenti:</span> ${totale}` : ''}</li>`).join('')}</ul>
+    ${condizioni}
+    <div class="chiusura"><span>${esc(imp.citta)} ${dataLunga}</span><span class="firma">${righeTesto(imp.firma)}</span></div>
+    <footer>${righeTesto(imp.piede)}</footer>`;
+  // Si stampa a logo caricato, altrimenti potrebbe mancare nel PDF
+  const logo = foglio.querySelector('.logo');
+  if (logo) await logo.decode().catch(() => logo.remove());
   window.print();
+}
+
+// ---------- Impostazioni (solo admin) ----------
+
+const LATO_LOGO = 600; // px, il lato più lungo: basta per la stampa e tiene piccolo il dato salvato
+
+/** Legge l'immagine scelta e la riduce in un PNG di al massimo LATO_LOGO px. */
+async function logoDaFile(file) {
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  try {
+    await img.decode();
+  } catch {
+    throw new Error('Il file scelto non è un\'immagine leggibile');
+  } finally {
+    URL.revokeObjectURL(img.src);
+  }
+  // Un SVG senza dimensioni proprie non si può ridimensionare
+  if (!img.naturalWidth || !img.naturalHeight) throw new Error('Immagine senza dimensioni: usa un PNG o un JPEG');
+  const scala = Math.min(1, LATO_LOGO / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.naturalWidth * scala);
+  canvas.height = Math.round(img.naturalHeight * scala);
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/png');
+}
+
+const CAMPI_IMPOSTAZIONI = [
+  ['Intestazione dei preventivi', [
+    { nome: 'nome', etichetta: 'Nome' },
+    { nome: 'sottotitolo', etichetta: 'Sottotitolo' },
+    { nome: 'citta', etichetta: 'Città (accanto alla data, in fondo)' },
+    { nome: 'firma', etichetta: 'Firma (una riga per riga)', tipo: 'textarea' },
+    { nome: 'piede', etichetta: 'Piede di pagina (una riga per riga)', tipo: 'textarea' },
+  ]],
+  ['Testi predefiniti di un nuovo preventivo', [
+    { nome: 'oggetto', etichetta: 'Oggetto' },
+    { nome: 'voce', etichetta: 'Voce ({tipo} diventa il tipo di corso, es. BLSD)' },
+    { nome: 'prezzo', etichetta: 'Prezzo della voce (€)', tipo: 'number', extra: 'min="0" step="0.01"' },
+    { nome: 'premessa', etichetta: 'Premessa', tipo: 'textarea' },
+    { nome: 'condizioni', etichetta: 'Condizioni e saluti ("Etichetta: testo" diventa un punto dell\'elenco)', tipo: 'textarea' },
+  ]],
+];
+
+async function paginaImpostazioni() {
+  const imp = await api('GET', '/impostazioni');
+  let logo = imp.logo;
+  app.innerHTML = `
+    <div class="barra"><h1>Impostazioni</h1><button class="primario" id="salva">Salva</button></div>
+    <h2>Logo</h2>
+    <div class="logo-impostazioni">
+      <div id="anteprima-logo"></div>
+      <div>
+        <button id="scegli-logo">Scegli immagine</button> <button id="togli-logo">Togli logo</button>
+        <input type="file" id="file-logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+        <p class="muted">Compare in alto a destra nei preventivi. Viene ridotto a ${LATO_LOGO} px e salvato con il pulsante Salva.</p>
+      </div>
+    </div>
+    ${CAMPI_IMPOSTAZIONI.map(([titolo, campi]) => `<h2>${esc(titolo)}</h2>
+      <form class="modulo-preventivo">${campi.map((c) => campoHtml(c, imp[c.nome])).join('')}</form>`).join('')}
+    <p class="muted">Le modifiche valgono per le prossime stampe; i testi già inseriti nei preventivi esistenti restano com'erano.</p>`;
+
+  const disegnaLogo = () => {
+    document.getElementById('anteprima-logo').innerHTML = logo ? `<img src="${esc(logo)}" alt="Logo">` : '<span class="muted">Nessun logo</span>';
+    document.getElementById('togli-logo').disabled = !logo;
+  };
+  disegnaLogo();
+  const file = document.getElementById('file-logo');
+  document.getElementById('scegli-logo').onclick = () => file.click();
+  file.onchange = async () => {
+    if (!file.files[0]) return;
+    try {
+      logo = await logoDaFile(file.files[0]);
+      disegnaLogo();
+    } catch (e) {
+      alert(e.message);
+    }
+    file.value = '';
+  };
+  document.getElementById('togli-logo').onclick = () => {
+    logo = null;
+    disegnaLogo();
+  };
+  app.querySelectorAll('form').forEach((f) => f.onsubmit = (ev) => ev.preventDefault());
+  document.getElementById('salva').onclick = async (ev) => {
+    const dati = { logo };
+    app.querySelectorAll('form').forEach((f) => Object.assign(dati, Object.fromEntries(new FormData(f))));
+    try {
+      await api('PUT', '/impostazioni', dati);
+      ev.target.textContent = 'Salvato';
+      setTimeout(() => ev.target.textContent = 'Salva', 1500);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
 }
 
 // ---------- Utenti (solo admin) ----------
@@ -904,13 +1013,14 @@ function mostraIntestazione() {
   if (!io) return;
   document.getElementById('utente-nome').textContent = `${io.nome} · ${io.ruolo === 'admin' ? 'Amministratore' : 'Coordinatore'}`;
   document.getElementById('nav-utenti').hidden = io.ruolo !== 'admin';
+  document.getElementById('nav-impostazioni').hidden = io.ruolo !== 'admin';
 }
 
 async function entra(utente) {
   io = utente;
   abilitazioni = await api('GET', '/abilitazioni');
   mostraIntestazione();
-  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|invio|nuova-richiesta|richieste|istruttori|committenti|preventiv|utenti)/)) location.hash = '#/corsi';
+  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|invio|nuova-richiesta|richieste|istruttori|committenti|preventiv|utenti|impostazioni)/)) location.hash = '#/corsi';
   else naviga();
 }
 
@@ -933,6 +1043,7 @@ async function naviga() {
     else if ((m = percorso.match(/^\/preventivo\/(\d+|nuovo)$/))) await paginaPreventivo(m[1] === 'nuovo' ? null : Number(m[1]));
     else if (percorso.startsWith('/preventivi')) await paginaPreventivi();
     else if (percorso.startsWith('/utenti') && io.ruolo === 'admin') await paginaUtenti();
+    else if (percorso.startsWith('/impostazioni') && io.ruolo === 'admin') await paginaImpostazioni();
     else await paginaCorsi();
   } catch (e) {
     if (io) app.innerHTML = `<p class="errore">${esc(e.message)}</p>`; // senza io è già stato mostrato il login
