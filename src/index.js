@@ -104,6 +104,55 @@ async function salvaCorso(env, id, body) {
     .bind(...valori).first();
 }
 
+const MAX_IMPORT = 500;
+
+/**
+ * Import di più corsi (letti dal file nel browser, public/importa.js), tutti in bozza.
+ * I committenti si cercano per nome e quelli mancanti si creano. Si saltano i corsi già presenti
+ * (stessa data, tipo, retraining, ora di inizio e sede), così reimportare lo stesso file non crea doppioni.
+ */
+async function importaCorsi(env, utente, body) {
+  const corsi = body.corsi || [];
+  if (!corsi.length) throw new ErroreRichiesta('Nessun corso da importare');
+  if (corsi.length > MAX_IMPORT) throw new ErroreRichiesta(`Al massimo ${MAX_IMPORT} corsi per volta`);
+
+  const codici = (await env.DB.prepare('SELECT codice FROM abilitazioni').all()).results.map((a) => a.codice);
+  const ora = (v) => (/^\d{2}:\d{2}$/.test(v || '') ? v : null);
+  const righe = corsi.map((c, i) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c.data || '')) throw new ErroreRichiesta(`Corso ${i + 1}: data non valida`);
+    if (!codici.includes(c.tipo)) throw new ErroreRichiesta(`Corso ${i + 1}: tipo sconosciuto`);
+    return {
+      data: c.data, tipo: c.tipo, retraining: c.retraining ? 1 : 0,
+      categoria: c.categoria === 'ausl' ? 'ausl' : 'volontari',
+      circuito: ['CoES', 'VdA'].includes(c.circuito) ? c.circuito : null,
+      ora_inizio: ora(c.ora_inizio), ora_fine: ora(c.ora_fine),
+      sede: c.sede?.trim() || null, committente: c.committente?.trim() || null,
+      istruttori: Math.max(1, Math.floor(Number(c.istruttori_richiesti)) || 2), note: c.note || null,
+    };
+  });
+
+  // Un nome per committente, senza distinguere maiuscole
+  const nomi = [...new Map(righe.filter((r) => r.committente).map((r) => [r.committente.toLowerCase(), r.committente])).values()];
+  const [nuoviCommittenti, inseriti] = await env.DB.batch([
+    env.DB.prepare(`INSERT INTO committenti (nome) SELECT j.value FROM json_each(?) j
+      WHERE NOT EXISTS (SELECT 1 FROM committenti c WHERE c.nome = j.value COLLATE NOCASE)`).bind(JSON.stringify(nomi)),
+    env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, tipo, retraining, data, ora_inizio, ora_fine, sede,
+        istruttori_richiesti, coordinatore_id, stato, note)
+      SELECT (SELECT min(id) FROM committenti WHERE nome = j.value ->> 'committente' COLLATE NOCASE),
+        j.value ->> 'categoria', j.value ->> 'circuito', j.value ->> 'tipo', j.value ->> 'retraining', j.value ->> 'data',
+        j.value ->> 'ora_inizio', j.value ->> 'ora_fine', j.value ->> 'sede', j.value ->> 'istruttori', ?2, 'bozza', j.value ->> 'note'
+      FROM json_each(?1) j
+      WHERE NOT EXISTS (SELECT 1 FROM corsi c WHERE c.data = j.value ->> 'data' AND c.tipo = j.value ->> 'tipo'
+        AND c.retraining = j.value ->> 'retraining' AND c.ora_inizio IS j.value ->> 'ora_inizio' AND c.sede IS j.value ->> 'sede')`)
+      .bind(JSON.stringify(righe), utente.id),
+  ]);
+  return {
+    importati: inseriti.meta.changes,
+    gia_presenti: righe.length - inseriti.meta.changes,
+    nuovi_committenti: nuoviCommittenti.meta.changes,
+  };
+}
+
 /**
  * Tutti gli istruttori visti rispetto a un corso: disponibilità, abilitazione,
  * giornate negli ultimi 12 mesi (equità), altri impegni lo stesso giorno, eventuale ruolo assegnato.
@@ -425,6 +474,7 @@ const rotte = [
 
   ['GET', /^\/api\/corsi$/, ({ env, url }) => listaCorsi(env, url)],
   ['POST', /^\/api\/corsi$/, ({ env, body }) => salvaCorso(env, null, body)],
+  ['POST', /^\/api\/corsi\/importa$/, ({ env, utente, body }) => importaCorsi(env, utente, body)],
   ['GET', /^\/api\/corsi\/(\d+)$/, ({ env, p }) => dettaglioCorso(env, Number(p[1]))],
   ['PUT', /^\/api\/corsi\/(\d+)$/, ({ env, body, p }) => salvaCorso(env, Number(p[1]), body)],
   ['DELETE', /^\/api\/corsi\/(\d+)$/, async ({ env, p }) => {

@@ -1,3 +1,4 @@
+import { MODELLO_CSV, corsiDaCsv } from '/importa.js';
 import { linkWhatsApp, rigaCorso, sezioni, testoMessaggio } from '/messaggio.js';
 
 const app = document.getElementById('app');
@@ -129,6 +130,7 @@ async function paginaCorsi() {
       <div>
         <a class="bottone" href="${passati ? '#/corsi' : '#/corsi/passati'}">${passati ? 'Prossimi' : 'Passati'}</a>
         ${passati ? '' : '<button id="richiedi">Richiedi disponibilità</button>'}
+        <button id="importa">Importa da file</button><input type="file" id="file-import" accept=".csv,.txt,text/csv" hidden>
         <button class="primario" id="nuovo">Nuovo corso</button>
       </div>
     </div>
@@ -169,6 +171,80 @@ async function paginaCorsi() {
       async (d) => ({ id: nuovoId } = await api('POST', '/corsi', d)));
     if (ok) location.hash = `#/corso/${nuovoId}`;
   };
+
+  const file = document.getElementById('file-import');
+  document.getElementById('importa').onclick = () => file.click();
+  file.onchange = async () => {
+    if (!file.files[0]) return;
+    const dati = await file.files[0].arrayBuffer();
+    file.value = '';
+    // Excel salva i CSV in UTF-8 solo se richiesto; altrimenti in Windows-1252
+    let testo;
+    try {
+      testo = new TextDecoder('utf-8', { fatal: true }).decode(dati);
+    } catch {
+      testo = new TextDecoder('windows-1252').decode(dati);
+    }
+    await importaCorsi(testo);
+    paginaCorsi();
+  };
+}
+
+// ---------- Import dei corsi da file ----------
+
+async function importaCorsi(testo) {
+  let letti;
+  try {
+    letti = corsiDaCsv(testo, abilitazioni.map((a) => a.codice));
+  } catch (e) {
+    return alert(`${e.message}.\n\nSe il file è un foglio Excel, salvalo come "CSV (delimitato dal separatore di elenco)".`);
+  }
+  const committenti = new Set((await api('GET', '/committenti')).map((c) => c.nome.toLowerCase()));
+  const buone = letti.righe.filter((r) => !r.errori.length);
+  const conErrori = letti.righe.length - buone.length;
+
+  dialogoForm.innerHTML = `
+    <h2>Importa corsi</h2>
+    <p>${buone.length} corsi pronti da importare in bozza${conErrori ? `, <strong class="errore">${conErrori} righe con errori</strong> (non saranno importate)` : ''}.
+      I corsi già presenti (stessa data, tipo, ora di inizio e sede) vengono saltati.</p>
+    ${letti.ignorate.length ? `<p class="muted">Colonne ignorate: ${esc(letti.ignorate.join(', '))}</p>` : ''}
+    <div class="tabella"><table>
+      <thead><tr><th>Riga</th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Istr.</th></tr></thead>
+      <tbody>${letti.righe.map(({ riga, corso: c, errori }) => errori.length
+        ? `<tr><td>${riga}</td><td colspan="7" class="errore">${esc(errori.join('; '))}</td></tr>`
+        : `<tr><td>${riga}</td><td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
+            <td>${esc(c.ora_inizio || '')}${c.ora_fine ? '–' + esc(c.ora_fine) : ''}</td><td>${esc(c.sede)}</td>
+            <td>${esc(c.committente)}${c.committente && !committenti.has(c.committente.toLowerCase()) ? ' <span class="etichetta forse">Nuovo</span>' : ''}</td>
+            <td>${c.istruttori_richiesti}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Il file non contiene corsi</td></tr>'}
+      </tbody>
+    </table></div>
+    <div class="azioni">
+      <button type="button" id="modello">Scarica modello</button>
+      <button value="annulla" formnovalidate>Annulla</button>
+      <button value="ok" class="primario" ${buone.length ? '' : 'disabled'}>Importa ${buone.length} corsi</button>
+    </div>`;
+  dialogoForm.querySelector('#modello').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([MODELLO_CSV], { type: 'text/csv' }));
+    a.download = 'modello-corsi.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  dialogo.classList.add('largo');
+  dialogo.returnValue = '';
+  dialogo.showModal();
+  const conferma = await new Promise((resolve) => dialogo.onclose = () => resolve(dialogo.returnValue === 'ok'));
+  dialogo.classList.remove('largo');
+  if (!conferma) return;
+
+  try {
+    const esito = await api('POST', '/corsi/importa', { corsi: buone.map((r) => r.corso) });
+    alert([`Corsi importati: ${esito.importati}`,
+      esito.gia_presenti && `Già presenti, saltati: ${esito.gia_presenti}`,
+      esito.nuovi_committenti && `Committenti creati: ${esito.nuovi_committenti}`].filter(Boolean).join('\n'));
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 // ---------- Dettaglio corso: disponibilità e assegnazioni ----------
