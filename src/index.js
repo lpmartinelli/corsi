@@ -475,6 +475,12 @@ const rotte = [
   ['GET', /^\/api\/corsi$/, ({ env, url }) => listaCorsi(env, url)],
   ['POST', /^\/api\/corsi$/, ({ env, body }) => salvaCorso(env, null, body)],
   ['POST', /^\/api\/corsi\/importa$/, ({ env, utente, body }) => importaCorsi(env, utente, body)],
+  ['POST', /^\/api\/corsi\/elimina$/, async ({ env, body }) => {
+    const ids = (body.ids || []).map(Number).filter(Number.isInteger);
+    if (!ids.length) throw new ErroreRichiesta('Nessun corso selezionato');
+    const { meta } = await env.DB.prepare('DELETE FROM corsi WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(ids)).run();
+    return { eliminati: meta.changes };
+  }],
   ['GET', /^\/api\/corsi\/(\d+)$/, ({ env, p }) => dettaglioCorso(env, Number(p[1]))],
   ['PUT', /^\/api\/corsi\/(\d+)$/, ({ env, body, p }) => salvaCorso(env, Number(p[1]), body)],
   ['DELETE', /^\/api\/corsi\/(\d+)$/, async ({ env, p }) => {

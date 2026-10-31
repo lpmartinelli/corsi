@@ -122,8 +122,8 @@ async function paginaCorsi() {
   const corsi = await api('GET', passati ? `/corsi?a=${oggi}` : `/corsi?da=${oggi}`);
   if (passati) corsi.reverse();
 
-  // Per la richiesta di disponibilità si selezionano i corsi futuri; quelli in bozza sono preselezionati
-  const selezionabile = (c) => !passati && ['bozza', 'richiesta'].includes(c.stato);
+  // Si seleziona per eliminare o, tra i corsi futuri da organizzare, per richiedere disponibilità; quelli in bozza sono preselezionati
+  const richiedibile = (c) => !passati && ['bozza', 'richiesta'].includes(c.stato);
   app.innerHTML = `
     <div class="barra">
       <h1>Corsi</h1>
@@ -136,10 +136,10 @@ async function paginaCorsi() {
       </div>
     </div>
     <div class="tabella"><table>
-      <thead><tr><th></th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Squadra</th><th>Disponibili</th><th>Stato</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="sel-tutti" title="Seleziona tutti"></th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Squadra</th><th>Disponibili</th><th>Stato</th></tr></thead>
       <tbody>${corsi.map((c) => `
         <tr class="cliccabile ${c.stato === 'annullato' ? 'spento' : ''}" data-id="${c.id}">
-          <td>${selezionabile(c) ? `<input type="checkbox" data-sel="${c.id}" ${c.stato === 'bozza' ? 'checked' : ''}>` : ''}</td>
+          <td><input type="checkbox" data-sel="${c.id}" ${richiedibile(c) && c.stato === 'bozza' ? 'checked' : ''}></td>
           <td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
           <td>${esc(c.ora_inizio || '')}${c.ora_fine ? '–' + esc(c.ora_fine) : ''}</td>
           <td>${esc(c.sede)}</td><td>${esc(c.committente)}</td>
@@ -148,22 +148,50 @@ async function paginaCorsi() {
           <td>${esc(STATI.find(([v]) => v === c.stato)[1])}</td>
         </tr>`).join('') || `<tr><td colspan="10" class="muted">Nessun corso</td></tr>`}
       </tbody>
-    </table></div>`;
+    </table></div>
+    <div class="azioni"><button id="elimina-sel">Elimina selezionati</button></div>`;
 
-  const selezionati = () => [...app.querySelectorAll('[data-sel]:checked')].map((x) => Number(x.dataset.sel));
+  const selezionati = () => corsi.filter((c) => app.querySelector(`[data-sel="${c.id}"]`).checked);
   const richiedi = document.getElementById('richiedi');
-  if (richiedi) {
-    const aggiorna = () => {
-      richiedi.textContent = `Richiedi disponibilità (${selezionati().length})`;
-      richiedi.disabled = !selezionati().length;
-    };
+  const eliminaSel = document.getElementById('elimina-sel');
+  const tutti = document.getElementById('sel-tutti');
+  const aggiorna = () => {
+    const sel = selezionati();
+    const daRichiedere = sel.filter(richiedibile).length;
+    if (richiedi) {
+      richiedi.textContent = `Richiedi disponibilità (${daRichiedere})`;
+      richiedi.disabled = !daRichiedere;
+    }
+    eliminaSel.textContent = `Elimina selezionati (${sel.length})`;
+    eliminaSel.disabled = !sel.length;
+    tutti.checked = corsi.length > 0 && sel.length === corsi.length;
+  };
+  aggiorna();
+  app.querySelectorAll('[data-sel]').forEach((x) => {
+    x.onclick = (ev) => ev.stopPropagation();
+    x.onchange = aggiorna;
+  });
+  tutti.onchange = () => {
+    app.querySelectorAll('[data-sel]').forEach((x) => x.checked = tutti.checked);
     aggiorna();
-    app.querySelectorAll('[data-sel]').forEach((x) => {
-      x.onclick = (ev) => ev.stopPropagation();
-      x.onchange = aggiorna;
-    });
-    richiedi.onclick = () => location.hash = `#/nuova-richiesta/${selezionati().join(',')}`;
-  }
+  };
+  if (richiedi) richiedi.onclick = () => location.hash = `#/nuova-richiesta/${selezionati().filter(richiedibile).map((c) => c.id).join(',')}`;
+
+  eliminaSel.onclick = async () => {
+    const sel = selezionati();
+    const organizzati = sel.filter((c) => c.assegnati || c.stato !== 'bozza').length;
+    const elenco = sel.slice(0, 15).map((c) => `• ${formatoData(c.data)} ${nomeTipo(c)}${c.sede ? ' · ' + c.sede : ''}`).join('\n')
+      + (sel.length > 15 ? `\n… e altri ${sel.length - 15}` : '');
+    if (!confirm(`Eliminare ${sel.length} corsi?\n\n${elenco}\n\n`
+      + (organizzati ? `${organizzati} non sono in bozza o hanno istruttori assegnati: si perdono anche disponibilità e assegnazioni.\n` : '')
+      + 'Per un corso cancellato dal committente è meglio impostare lo stato "Annullato".')) return;
+    try {
+      await api('POST', '/corsi/elimina', { ids: sel.map((c) => c.id) });
+    } catch (e) {
+      alert(e.message);
+    }
+    paginaCorsi();
+  };
 
   app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => location.hash = `#/corso/${tr.dataset.id}`);
   document.getElementById('nuovo').onclick = async () => {
