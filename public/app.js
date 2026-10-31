@@ -130,6 +130,7 @@ async function paginaCorsi() {
       <div>
         <a class="bottone" href="${passati ? '#/corsi' : '#/corsi/passati'}">${passati ? 'Prossimi' : 'Passati'}</a>
         ${passati ? '' : '<button id="richiedi">Richiedi disponibilità</button>'}
+        <button id="modello">Scarica modello</button>
         <button id="importa">Importa da file</button><input type="file" id="file-import" accept=".csv,.txt,text/csv" hidden>
         <button class="primario" id="nuovo">Nuovo corso</button>
       </div>
@@ -172,6 +173,7 @@ async function paginaCorsi() {
     if (ok) location.hash = `#/corso/${nuovoId}`;
   };
 
+  document.getElementById('modello').onclick = scaricaModello;
   const file = document.getElementById('file-import');
   document.getElementById('importa').onclick = () => file.click();
   file.onchange = async () => {
@@ -191,6 +193,15 @@ async function paginaCorsi() {
 }
 
 // ---------- Import dei corsi da file ----------
+
+// Il BOM serve a Excel per aprire il file in UTF-8 senza rovinare gli accenti
+function scaricaModello() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + MODELLO_CSV], { type: 'text/csv' }));
+  a.download = 'modello-corsi.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 async function importaCorsi(testo) {
   let letti;
@@ -223,13 +234,7 @@ async function importaCorsi(testo) {
       <button value="annulla" formnovalidate>Annulla</button>
       <button value="ok" class="primario" ${buone.length ? '' : 'disabled'}>Importa ${buone.length} corsi</button>
     </div>`;
-  dialogoForm.querySelector('#modello').onclick = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([MODELLO_CSV], { type: 'text/csv' }));
-    a.download = 'modello-corsi.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  dialogoForm.querySelector('#modello').onclick = scaricaModello;
   dialogo.classList.add('largo');
   dialogo.returnValue = '';
   dialogo.showModal();

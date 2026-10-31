@@ -40,11 +40,12 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 
 ## Import dei corsi da file
 
-In **Corsi** → **Importa da file** si sceglie un CSV (da Excel: "Salva con nome" → CSV; vanno bene `;` e `,`).
+In **Corsi** → **Scarica modello** si scarica un CSV di esempio da compilare in Excel.
+Con **Importa da file** si sceglie il CSV (da Excel: "Salva con nome" → CSV; vanno bene `;` e `,`).
 La prima riga contiene i nomi delle colonne: obbligatorie **Data** e **Tipo**, facoltative Categoria, CoES / VdA,
 Retraining, Ora inizio, Ora fine (oppure Orario `8-13`), Sede, Committente, Istruttori, Note.
 Il tipo accetta anche la r del retraining (`BLSDr`); le date come `15/11/2026` o `2026-11-15`.
-Prima di salvare si vede un'anteprima con gli errori riga per riga; dall'anteprima si scarica anche un modello.
+Prima di salvare si vede un'anteprima con gli errori riga per riga.
 I corsi entrano in bozza, i committenti mancanti vengono creati, i corsi già presenti
 (stessa data, tipo, retraining, ora di inizio e sede) vengono saltati. Parser in `public/importa.js`.
 
