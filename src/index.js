@@ -392,18 +392,20 @@ async function salvaPreventivo(env, utente, id, body) {
   const righe = (body.righe || [])
     .map((r) => ({ descrizione: String(r.descrizione || '').trim(), quantita: Number(r.quantita) || 0, prezzo: Number(r.prezzo) || 0 }))
     .filter((r) => r.descrizione || r.prezzo);
-  const valori = [body.committente_id || null, body.data, Math.max(0, Math.floor(Number(body.validita_giorni)) || 30),
-    body.oggetto || null, JSON.stringify(righe), Number(body.iva) >= 0 ? Number(body.iva) : 22, body.note || null,
-    STATI_PREVENTIVO.includes(body.stato) ? body.stato : 'bozza'];
+  // IVA vuota = "+ iva se dovuta"
+  const iva = body.iva === '' || body.iva == null || !(Number(body.iva) >= 0) ? null : Number(body.iva);
+  const valori = [body.committente_id || null, body.data, body.oggetto || null, body.premessa || null, JSON.stringify(righe), iva,
+    body.condizioni || null, body.note || null, STATI_PREVENTIVO.includes(body.stato) ? body.stato : 'bozza'];
   if (id) {
-    await env.DB.prepare(`UPDATE preventivi SET committente_id=?, data=?, validita_giorni=?, oggetto=?, righe=?, iva=?, note=?, stato=?
+    await env.DB.prepare(`UPDATE preventivi SET committente_id=?, data=?, oggetto=?, premessa=?, righe=?, iva=?, condizioni=?, note=?, stato=?
       WHERE id=?`).bind(...valori, id).run();
     return dettaglioPreventivo(env, id);
   }
   // Il numero segue l'anno della data del preventivo
   const anno = Number(body.data.slice(0, 4));
-  ({ id } = await env.DB.prepare(`INSERT INTO preventivi (anno, progressivo, committente_id, data, validita_giorni, oggetto, righe, iva, note, stato, creato_da)
-    VALUES (?1, (SELECT coalesce(max(progressivo), 0) + 1 FROM preventivi WHERE anno = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+  ({ id } = await env.DB.prepare(`INSERT INTO preventivi (anno, progressivo, committente_id, data, oggetto, premessa, righe, iva, condizioni,
+      note, stato, creato_da)
+    VALUES (?1, (SELECT coalesce(max(progressivo), 0) + 1 FROM preventivi WHERE anno = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
     RETURNING id`).bind(anno, ...valori, utente.id).first());
   return dettaglioPreventivo(env, id);
 }

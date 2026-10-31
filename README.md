@@ -51,10 +51,13 @@ I corsi entrano in bozza, i committenti mancanti vengono creati, i corsi già pr
 
 ## Preventivi
 
-In **Preventivi** si crea un preventivo per un committente: oggetto, voci (descrizione, quantità, prezzo unitario
-IVA esclusa), aliquota IVA (0 per le operazioni esenti, con il motivo nelle note), validità e stato
-(bozza, inviato, accettato, rifiutato). Il numero è progressivo per anno (`3/2026`) e viene assegnato al primo salvataggio.
-**Stampa / PDF** salva e apre la stampa del browser con il documento impaginato; per il PDF si sceglie "Salva come PDF".
+In **Preventivi** si crea un preventivo per un committente, stampato come lettera: oggetto, premessa, voci
+(descrizione, quantità, prezzo unitario IVA esclusa), "Costo complessivo docenti", condizioni e saluti.
+Un nuovo preventivo parte dal modello in uso (1 modulo BLSD fino a 18 allievi, € 750,00 + iva se dovuta,
+aula a cura del richiedente, attestato, comunicazione all'AUSL); i testi predefiniti sono in cima alla sezione Preventivi di `public/app.js`.
+L'IVA può essere "+ iva se dovuta", 22% o esente. Le note interne non vengono stampate.
+Il numero è progressivo per anno (`3/2026`) e viene assegnato al primo salvataggio.
+**Stampa / PDF** salva e apre la stampa del browser con la lettera impaginata; per il PDF si sceglie "Salva come PDF".
 
 ## Pubblicazione
 
