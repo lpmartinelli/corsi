@@ -38,6 +38,16 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 4. L'istruttore risponde Ci sono / Forse / Non ci sono dal telefono, senza login, e le risposte arrivano nella pagina del corso.
    Dopo l'assegnazione, o passata la data, il corso non accetta più risposte.
 
+## Import dei corsi da file
+
+In **Corsi** → **Importa da file** si sceglie un CSV (da Excel: "Salva con nome" → CSV; vanno bene `;` e `,`).
+La prima riga contiene i nomi delle colonne: obbligatorie **Data** e **Tipo**, facoltative Categoria, CoES / VdA,
+Retraining, Ora inizio, Ora fine (oppure Orario `8-13`), Sede, Committente, Istruttori, Note.
+Il tipo accetta anche la r del retraining (`BLSDr`); le date come `15/11/2026` o `2026-11-15`.
+Prima di salvare si vede un'anteprima con gli errori riga per riga; dall'anteprima si scarica anche un modello.
+I corsi entrano in bozza, i committenti mancanti vengono creati, i corsi già presenti
+(stessa data, tipo, retraining, ora di inizio e sede) vengono saltati. Parser in `public/importa.js`.
+
 ## Pubblicazione
 
 1. `npm run deploy`: pubblica il Worker (al primo giro crea anche il database D1), poi applica le migrazioni.
