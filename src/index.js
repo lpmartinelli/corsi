@@ -390,7 +390,10 @@ async function salvaPreventivo(env, utente, id, body) {
   richiedi(body, ['data']);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(body.data)) throw new ErroreRichiesta('Data non valida');
   const righe = (body.righe || [])
-    .map((r) => ({ descrizione: String(r.descrizione || '').trim(), quantita: Number(r.quantita) || 0, prezzo: Number(r.prezzo) || 0 }))
+    .map((r) => ({
+      tipo: r.tipo || null, descrizione: String(r.descrizione || '').trim(), quantita: Number(r.quantita) || 0,
+      allievi: r.tipo && Number(r.allievi) > 0 ? Math.floor(Number(r.allievi)) : null, prezzo: Number(r.prezzo) || 0,
+    }))
     .filter((r) => r.descrizione || r.prezzo);
   // IVA vuota = "+ iva se dovuta"
   const iva = body.iva === '' || body.iva == null || !(Number(body.iva) >= 0) ? null : Number(body.iva);
@@ -412,7 +415,7 @@ async function salvaPreventivo(env, utente, id, body) {
 
 // ---------- Impostazioni ----------
 
-const CHIAVI_IMPOSTAZIONI = ['nome', 'sottotitolo', 'citta', 'firma', 'piede', 'logo', 'oggetto', 'premessa', 'voce', 'prezzo', 'condizioni'];
+const CHIAVI_IMPOSTAZIONI = ['nome', 'sottotitolo', 'citta', 'firma', 'piede', 'logo', 'oggetto', 'premessa', 'voce', 'allievi', 'prezzo', 'condizioni'];
 // Il logo arriva già ridimensionato dal browser; il limite tiene la riga ben sotto quello di D1
 const MAX_LOGO = 1_000_000;
 

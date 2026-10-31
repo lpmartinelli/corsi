@@ -151,7 +151,8 @@ button:disabled { opacity: .5; cursor: default; }
 #anteprima-logo { width: 140px; height: 140px; display: grid; place-items: center; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
 #anteprima-logo img { max-width: 100%; max-height: 100%; }
 .voci-preventivo input.descrizione { width: 100%; min-width: 280px; }
-.voci-preventivo td:first-child { width: 100%; }
+.voci-preventivo td:nth-child(2) { width: 100%; }
+.voci-preventivo [data-campo="allievi"] { width: 80px; }
 .piede-preventivo { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-top: 12px; }
 
 /* Il foglio del preventivo si vede solo in stampa, sempre nero su bianco */

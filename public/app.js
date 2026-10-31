@@ -609,7 +609,17 @@ const OPZIONI_IVA = [['', '+ iva se dovuta'], ['22', 'IVA 22%'], ['0', 'Esente I
 const conIva = (p) => p.iva === null || p.iva === '';
 
 // Intestazione, firma, piede, logo e testi predefiniti stanno nelle impostazioni (pagina Impostazioni)
-const voceDocenza = (imp, tipo) => (imp.voce || '').replaceAll('{tipo}', tipo);
+// Nel modello della voce: {tipo} = tipo di corso, {moduli} = "1 modulo" / "2 moduli", {allievi} = allievi per modulo
+function descrizioneVoce(imp, r) {
+  const moduli = Number(r.quantita) || 0;
+  return (imp.voce || '').replaceAll('{tipo}', r.tipo || '').replaceAll('{moduli}', `${moduli} ${moduli === 1 ? 'modulo' : 'moduli'}`)
+    .replaceAll('{allievi}', r.allievi ?? '').replace(/\s+/g, ' ').trim();
+}
+const oggettoPer = (imp, tipo) => (imp.oggetto || '').replaceAll('{tipo}', tipo || '').replace(/\s+/g, ' ').trim();
+const voceNuova = (imp, tipo) => {
+  const r = { tipo, quantita: 1, allievi: imp.allievi ?? '', prezzo: imp.prezzo ?? '' };
+  return { ...r, descrizione: descrizioneVoce(imp, r) };
+};
 const righeTesto = (s) => (s || '').split('\n').map(esc).join('<br>');
 
 function totaliPreventivo(p) {
@@ -641,9 +651,9 @@ async function paginaPreventivo(id) {
   const [committenti, imp, salvato] = await Promise.all([api('GET', '/committenti'), api('GET', '/impostazioni'),
     id ? api('GET', `/preventivi/${id}`) : null]);
   const p = salvato || {
-    data: new Date().toISOString().slice(0, 10), iva: '', stato: 'bozza', oggetto: imp.oggetto,
+    data: new Date().toISOString().slice(0, 10), iva: '', stato: 'bozza', oggetto: oggettoPer(imp, abilitazioni[0]?.codice),
     premessa: imp.premessa, condizioni: imp.condizioni,
-    righe: [{ descrizione: voceDocenza(imp, 'BLSD'), quantita: 1, prezzo: imp.prezzo ?? '' }],
+    righe: [voceNuova(imp, abilitazioni[0]?.codice || '')],
   };
   const righe = p.righe;
   const campi = [
@@ -671,10 +681,11 @@ async function paginaPreventivo(id) {
     <form id="preventivo" class="modulo-preventivo">${campi.map((c) => campoHtml(c, p[c.nome])).join('')}</form>
     <h2>Voci</h2>
     <div class="tabella"><table class="voci-preventivo">
-      <thead><tr><th>Descrizione</th><th>Quantità</th><th>Prezzo unitario (€)</th><th>Importo</th><th></th></tr></thead>
+      <thead><tr><th>Corso</th><th>Descrizione</th><th>Moduli / quantità</th><th>Allievi</th><th>Prezzo unitario (€)</th><th>Importo</th><th></th></tr></thead>
       <tbody id="voci"></tbody>
     </table></div>
-    <datalist id="voci-suggerite">${abilitazioni.map((a) => `<option value="${esc(voceDocenza(imp, a.codice))}">`).join('')}</datalist>
+    <p class="muted">Scegliendo il corso, moduli e allievi, la descrizione si scrive dal modello delle Impostazioni; poi si può ritoccare.
+      Con "—" la voce è libera.</p>
     <div class="piede-preventivo"><button id="aggiungi">Aggiungi voce</button><div id="totali"></div></div>
     <form id="preventivo-fine" class="modulo-preventivo">${campiFinali.map((c) => campoHtml(c, p[c.nome])).join('')}</form>`;
 
@@ -692,14 +703,30 @@ async function paginaPreventivo(id) {
   const disegnaVoci = () => {
     document.getElementById('voci').innerHTML = righe.map((r, i) => `
       <tr>
-        <td><input class="descrizione" list="voci-suggerite" data-voce="${i}" data-campo="descrizione" value="${esc(r.descrizione)}"></td>
+        <td><select data-voce="${i}" data-campo="tipo">${[['', '—'], ...abilitazioni.map((a) => [a.codice, a.codice])].map(([v, t]) =>
+          `<option value="${esc(v)}" ${v === (r.tipo || '') ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></td>
+        <td><input class="descrizione" data-voce="${i}" data-campo="descrizione" value="${esc(r.descrizione)}"></td>
         <td><input type="number" min="0" step="any" data-voce="${i}" data-campo="quantita" value="${esc(r.quantita)}"></td>
+        <td><input type="number" min="0" step="1" data-voce="${i}" data-campo="allievi" value="${esc(r.allievi)}" ${r.tipo ? '' : 'disabled'}></td>
         <td><input type="number" min="0" step="0.01" data-voce="${i}" data-campo="prezzo" value="${esc(r.prezzo)}"></td>
         <td data-importo="${i}"></td>
         <td><button class="piccolo" data-togli="${i}" title="Togli voce">✕</button></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="muted">Nessuna voce</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="7" class="muted">Nessuna voce</td></tr>';
     app.querySelectorAll('[data-voce]').forEach((x) => x.oninput = () => {
-      righe[x.dataset.voce][x.dataset.campo] = x.value;
+      const i = Number(x.dataset.voce);
+      const r = righe[i];
+      const tipoPrima = r.tipo;
+      r[x.dataset.campo] = x.value;
+      if (x.dataset.campo === 'tipo') {
+        app.querySelector(`[data-voce="${i}"][data-campo="allievi"]`).disabled = !r.tipo;
+        // L'oggetto segue il corso della prima voce finché non è stato scritto a mano
+        if (i === 0 && form.elements.oggetto.value === oggettoPer(imp, tipoPrima)) form.elements.oggetto.value = oggettoPer(imp, r.tipo);
+      }
+      // Con un corso scelto, la descrizione si riscrive dal modello quando cambiano corso, moduli o allievi
+      if (r.tipo && ['tipo', 'quantita', 'allievi'].includes(x.dataset.campo)) {
+        r.descrizione = descrizioneVoce(imp, r);
+        app.querySelector(`[data-voce="${i}"][data-campo="descrizione"]`).value = r.descrizione;
+      }
       aggiornaTotali();
     });
     app.querySelectorAll('[data-togli]').forEach((b) => b.onclick = () => {
@@ -713,9 +740,9 @@ async function paginaPreventivo(id) {
   form.onsubmit = formFine.onsubmit = (ev) => ev.preventDefault();
 
   document.getElementById('aggiungi').onclick = () => {
-    righe.push({ descrizione: '', quantita: 1, prezzo: '' });
+    righe.push(voceNuova(imp, abilitazioni[0]?.codice || ''));
     disegnaVoci();
-    app.querySelector(`[data-voce="${righe.length - 1}"]`).focus();
+    app.querySelector(`[data-voce="${righe.length - 1}"][data-campo="tipo"]`).focus();
   };
   const salva = async () => {
     if (!form.reportValidity()) return null;
@@ -829,9 +856,10 @@ const CAMPI_IMPOSTAZIONI = [
     { nome: 'piede', etichetta: 'Piede di pagina (una riga per riga)', tipo: 'textarea' },
   ]],
   ['Testi predefiniti di un nuovo preventivo', [
-    { nome: 'oggetto', etichetta: 'Oggetto' },
-    { nome: 'voce', etichetta: 'Voce ({tipo} diventa il tipo di corso, es. BLSD)' },
-    { nome: 'prezzo', etichetta: 'Prezzo della voce (€)', tipo: 'number', extra: 'min="0" step="0.01"' },
+    { nome: 'oggetto', etichetta: 'Oggetto ({tipo} = corso della prima voce)' },
+    { nome: 'voce', etichetta: 'Modello della voce: {tipo} = corso, es. BLSD · {moduli} = "1 modulo" / "2 moduli" · {allievi} = allievi' },
+    { nome: 'allievi', etichetta: 'Allievi per modulo', tipo: 'number', extra: 'min="0" step="1"' },
+    { nome: 'prezzo', etichetta: 'Prezzo per modulo (€)', tipo: 'number', extra: 'min="0" step="0.01"' },
     { nome: 'premessa', etichetta: 'Premessa', tipo: 'textarea' },
     { nome: 'condizioni', etichetta: 'Condizioni e saluti ("Etichetta: testo" diventa un punto dell\'elenco)', tipo: 'textarea' },
   ]],

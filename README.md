@@ -57,7 +57,8 @@ Un nuovo preventivo parte dal modello in uso (1 modulo BLSD fino a 18 allievi, �
 aula a cura del richiedente, attestato, comunicazione all'AUSL).
 L'IVA può essere "+ iva se dovuta", 22% o esente. L'indirizzo del destinatario si inserisce nel committente.
 In **Impostazioni** (solo amministratore) si cambiano intestazione, logo, città, firma, piede di pagina e i testi
-predefiniti; stanno nella tabella `impostazioni`. Il logo viene ridotto nel browser a 600 px e salvato come PNG nel database.
+predefiniti; stanno nella tabella `impostazioni`. Nel modello della voce `{tipo}` è il corso, `{moduli}` diventa
+"1 modulo" / "2 moduli" e `{allievi}` gli allievi; nel preventivo si scelgono per ogni voce e la descrizione si riscrive da sola. Il logo viene ridotto nel browser a 600 px e salvato come PNG nel database.
 Nelle condizioni, i paragrafi separati da una riga vuota che iniziano con "Etichetta:" diventano punti dell'elenco. Le note interne non vengono stampate.
 Il numero è progressivo per anno (`3/2026`) e viene assegnato al primo salvataggio.
 **Stampa / PDF** salva e apre la stampa del browser con la lettera impaginata; per il PDF si sceglie "Salva come PDF".
