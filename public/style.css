@@ -138,6 +138,30 @@ button:disabled { opacity: .5; cursor: default; }
 .link-attivazione { display: flex; gap: 8px; }
 .link-attivazione input { flex: 1; min-width: 0; }
 
+.modulo-preventivo { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px 16px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.modulo-preventivo label:has([name="oggetto"]), .modulo-preventivo label:has(textarea) { grid-column: 1 / -1; }
+.voci-preventivo input { width: 110px; }
+.voci-preventivo input.descrizione { width: 100%; min-width: 280px; }
+.voci-preventivo td:first-child { width: 100%; }
+.piede-preventivo { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-top: 12px; }
+
+/* Il foglio del preventivo si vede solo in stampa, sempre nero su bianco */
+#foglio-stampa { display: none; }
+@media print {
+  body { background: #fff; }
+  body > :not(#foglio-stampa) { display: none !important; }
+  #foglio-stampa { display: block; color: #000; font: 11pt/1.45 system-ui, sans-serif; }
+  #foglio-stampa h1 { font-size: 18pt; margin-bottom: 4px; }
+  #foglio-stampa .destinatario { margin: 24px 0 24px auto; width: 45%; }
+  #foglio-stampa table { margin: 16px 0; }
+  #foglio-stampa th, #foglio-stampa td { color: #000; border-bottom: 1px solid #ccc; white-space: normal; }
+  #foglio-stampa .num { text-align: right; white-space: nowrap; }
+  #foglio-stampa tfoot td { border-bottom: 0; }
+  #foglio-stampa tr.totale td { font-weight: 700; border-top: 2px solid #000; }
+  #foglio-stampa .note { white-space: pre-wrap; }
+}
+
 @media (max-width: 560px) {
   .riga { grid-template-columns: 1fr; }
 }

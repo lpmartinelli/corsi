@@ -596,6 +596,175 @@ async function paginaCommittenti() {
   });
 }
 
+// ---------- Preventivi ----------
+
+const STATI_PREVENTIVO = [['bozza', 'Bozza'], ['inviato', 'Inviato'], ['accettato', 'Accettato'], ['rifiutato', 'Rifiutato']];
+const CLASSI_STATO_PREVENTIVO = { bozza: 'neutro', inviato: 'forse', accettato: 'si', rifiutato: 'no' };
+const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
+const numeroPreventivo = (p) => `${p.progressivo}/${p.anno}`;
+const centesimi = (n) => Math.round(n * 100) / 100;
+
+function totaliPreventivo(p) {
+  const imponibile = centesimi(p.righe.reduce((s, r) => s + (Number(r.quantita) || 0) * (Number(r.prezzo) || 0), 0));
+  const iva = centesimi(imponibile * (Number(p.iva) || 0) / 100);
+  return { imponibile, iva, totale: centesimi(imponibile + iva) };
+}
+
+async function paginaPreventivi() {
+  const preventivi = await api('GET', '/preventivi');
+  app.innerHTML = `
+    <div class="barra"><h1>Preventivi</h1><button class="primario" id="nuovo">Nuovo preventivo</button></div>
+    <div class="tabella"><table>
+      <thead><tr><th>Numero</th><th>Data</th><th>Committente</th><th>Oggetto</th><th>Totale</th><th>Stato</th></tr></thead>
+      <tbody>${preventivi.map((p) => `
+        <tr class="cliccabile ${p.stato === 'rifiutato' ? 'spento' : ''}" data-id="${p.id}">
+          <td>${numeroPreventivo(p)}</td><td>${formatoData(p.data)}</td><td>${esc(p.committente)}</td><td>${esc(p.oggetto)}</td>
+          <td>${euro(centesimi(p.imponibile * (1 + p.iva / 100)))}</td>
+          <td><span class="etichetta ${CLASSI_STATO_PREVENTIVO[p.stato]}">${STATI_PREVENTIVO.find(([v]) => v === p.stato)[1]}</span></td>
+        </tr>`).join('') || `<tr><td colspan="6" class="muted">Nessun preventivo</td></tr>`}
+      </tbody>
+    </table></div>`;
+  document.getElementById('nuovo').onclick = () => location.hash = '#/preventivo/nuovo';
+  app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => location.hash = `#/preventivo/${tr.dataset.id}`);
+}
+
+/** Editor del preventivo: dati generali, voci con quantità e prezzo, totali aggiornati mentre si scrive. */
+async function paginaPreventivo(id) {
+  const [committenti, salvato] = await Promise.all([api('GET', '/committenti'), id ? api('GET', `/preventivi/${id}`) : null]);
+  const p = salvato || {
+    data: new Date().toISOString().slice(0, 10), validita_giorni: 30, iva: 22, stato: 'bozza',
+    righe: [{ descrizione: '', quantita: 1, prezzo: '' }],
+  };
+  const righe = p.righe;
+  const campi = [
+    { nome: 'committente_id', etichetta: 'Committente', tipo: 'select', opzioni: [['', '—'], ...committenti.map((c) => [c.id, c.nome])] },
+    { nome: 'data', etichetta: 'Data', tipo: 'date', obbligatorio: true },
+    { nome: 'validita_giorni', etichetta: 'Validità (giorni)', tipo: 'number', extra: 'min="0"' },
+    { nome: 'iva', etichetta: 'IVA %', tipo: 'number', extra: 'min="0" step="0.01"' },
+    { nome: 'stato', etichetta: 'Stato', tipo: 'select', opzioni: STATI_PREVENTIVO },
+    { nome: 'oggetto', etichetta: 'Oggetto' },
+    { nome: 'note', etichetta: 'Note (condizioni, pagamento, esenzione IVA…)', tipo: 'textarea' },
+  ];
+
+  app.innerHTML = `
+    <div class="barra">
+      <h1>${salvato ? `Preventivo ${numeroPreventivo(p)}` : 'Nuovo preventivo'}</h1>
+      <div>
+        ${salvato ? '<button id="elimina">Elimina</button>' : ''}
+        <button id="stampa">Stampa / PDF</button>
+        <button class="primario" id="salva">Salva</button>
+      </div>
+    </div>
+    <form id="preventivo" class="modulo-preventivo">${campi.map((c) => campoHtml(c, p[c.nome])).join('')}</form>
+    <h2>Voci</h2>
+    <div class="tabella"><table class="voci-preventivo">
+      <thead><tr><th>Descrizione</th><th>Quantità</th><th>Prezzo unitario (€)</th><th>Importo</th><th></th></tr></thead>
+      <tbody id="voci"></tbody>
+    </table></div>
+    <datalist id="voci-suggerite">${abilitazioni.map((a) => `<option value="Corso ${esc(a.codice)} – ${esc(a.descrizione)}">`).join('')}</datalist>
+    <div class="piede-preventivo"><button id="aggiungi">Aggiungi voce</button><div id="totali"></div></div>`;
+
+  const form = document.getElementById('preventivo');
+  const leggi = () => ({ ...Object.fromEntries(new FormData(form)), righe });
+  const aggiornaTotali = () => {
+    const t = totaliPreventivo(leggi());
+    document.getElementById('totali').innerHTML = `Imponibile <strong>${euro(t.imponibile)}</strong> · IVA <strong>${euro(t.iva)}</strong>
+      · Totale <strong>${euro(t.totale)}</strong>`;
+    righe.forEach((r, i) => app.querySelector(`[data-importo="${i}"]`).textContent = euro((Number(r.quantita) || 0) * (Number(r.prezzo) || 0)));
+  };
+  const disegnaVoci = () => {
+    document.getElementById('voci').innerHTML = righe.map((r, i) => `
+      <tr>
+        <td><input class="descrizione" list="voci-suggerite" data-voce="${i}" data-campo="descrizione" value="${esc(r.descrizione)}"></td>
+        <td><input type="number" min="0" step="any" data-voce="${i}" data-campo="quantita" value="${esc(r.quantita)}"></td>
+        <td><input type="number" min="0" step="0.01" data-voce="${i}" data-campo="prezzo" value="${esc(r.prezzo)}"></td>
+        <td data-importo="${i}"></td>
+        <td><button class="piccolo" data-togli="${i}" title="Togli voce">✕</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="muted">Nessuna voce</td></tr>';
+    app.querySelectorAll('[data-voce]').forEach((x) => x.oninput = () => {
+      righe[x.dataset.voce][x.dataset.campo] = x.value;
+      aggiornaTotali();
+    });
+    app.querySelectorAll('[data-togli]').forEach((b) => b.onclick = () => {
+      righe.splice(Number(b.dataset.togli), 1);
+      disegnaVoci();
+    });
+    aggiornaTotali();
+  };
+  disegnaVoci();
+  form.oninput = aggiornaTotali;
+  form.onsubmit = (ev) => ev.preventDefault();
+
+  document.getElementById('aggiungi').onclick = () => {
+    righe.push({ descrizione: '', quantita: 1, prezzo: '' });
+    disegnaVoci();
+    app.querySelector(`[data-voce="${righe.length - 1}"]`).focus();
+  };
+  const salva = async () => {
+    if (!form.reportValidity()) return null;
+    try {
+      return await api(salvato ? 'PUT' : 'POST', salvato ? `/preventivi/${salvato.id}` : '/preventivi', leggi());
+    } catch (e) {
+      alert(e.message);
+      return null;
+    }
+  };
+  document.getElementById('salva').onclick = async () => {
+    const nuovo = await salva();
+    if (!nuovo) return;
+    if (salvato) paginaPreventivo(nuovo.id);
+    else location.hash = `#/preventivo/${nuovo.id}`;
+  };
+  // Si salva prima di stampare: il numero lo assegna il server
+  document.getElementById('stampa').onclick = async () => {
+    const nuovo = await salva();
+    if (!nuovo) return;
+    stampaPreventivo(nuovo);
+    if (salvato) paginaPreventivo(nuovo.id);
+    else location.hash = `#/preventivo/${nuovo.id}`;
+  };
+  if (salvato) {
+    document.getElementById('elimina').onclick = async () => {
+      if (!confirm(`Eliminare il preventivo ${numeroPreventivo(p)}?`)) return;
+      await api('DELETE', `/preventivi/${salvato.id}`);
+      location.hash = '#/preventivi';
+    };
+  }
+}
+
+/** Documento da stampare (o salvare in PDF dal dialogo di stampa del browser). */
+function stampaPreventivo(p) {
+  const t = totaliPreventivo(p);
+  const scadenza = new Date(p.data + 'T12:00');
+  scadenza.setDate(scadenza.getDate() + p.validita_giorni);
+  let foglio = document.getElementById('foglio-stampa');
+  if (!foglio) {
+    foglio = document.createElement('div');
+    foglio.id = 'foglio-stampa';
+    document.body.append(foglio);
+  }
+  foglio.innerHTML = `
+    <h1>Preventivo n. ${numeroPreventivo(p)}</h1>
+    <p>Data: ${formatoData(p.data)} · Valido fino al ${formatoData(scadenza.toISOString().slice(0, 10))}</p>
+    ${p.committente ? `<p class="destinatario">Spett.le<br><strong>${esc(p.committente)}</strong>
+      ${p.referente ? `<br>Alla c.a. di ${esc(p.referente)}` : ''}${p.email ? `<br>${esc(p.email)}` : ''}</p>` : ''}
+    ${p.oggetto ? `<p><strong>Oggetto:</strong> ${esc(p.oggetto)}</p>` : ''}
+    <table>
+      <thead><tr><th>Descrizione</th><th class="num">Quantità</th><th class="num">Prezzo unitario</th><th class="num">Importo</th></tr></thead>
+      <tbody>${p.righe.map((r) => `
+        <tr><td>${esc(r.descrizione)}</td><td class="num">${r.quantita.toLocaleString('it-IT')}</td>
+          <td class="num">${euro(r.prezzo)}</td><td class="num">${euro(r.quantita * r.prezzo)}</td></tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr><td colspan="3" class="num">Imponibile</td><td class="num">${euro(t.imponibile)}</td></tr>
+        <tr><td colspan="3" class="num">IVA ${p.iva.toLocaleString('it-IT')}%</td><td class="num">${euro(t.iva)}</td></tr>
+        <tr class="totale"><td colspan="3" class="num">Totale</td><td class="num">${euro(t.totale)}</td></tr>
+      </tfoot>
+    </table>
+    ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}`;
+  window.print();
+}
+
 // ---------- Utenti (solo admin) ----------
 
 const CAMPI_UTENTE = [
@@ -725,7 +894,7 @@ async function entra(utente) {
   io = utente;
   abilitazioni = await api('GET', '/abilitazioni');
   mostraIntestazione();
-  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|invio|nuova-richiesta|richieste|istruttori|committenti|utenti)/)) location.hash = '#/corsi';
+  if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|invio|nuova-richiesta|richieste|istruttori|committenti|preventiv|utenti)/)) location.hash = '#/corsi';
   else naviga();
 }
 
@@ -745,6 +914,8 @@ async function naviga() {
     else if (percorso.startsWith('/richieste')) await paginaInvii();
     else if (percorso.startsWith('/istruttori')) await paginaIstruttori();
     else if (percorso.startsWith('/committenti')) await paginaCommittenti();
+    else if ((m = percorso.match(/^\/preventivo\/(\d+|nuovo)$/))) await paginaPreventivo(m[1] === 'nuovo' ? null : Number(m[1]));
+    else if (percorso.startsWith('/preventivi')) await paginaPreventivi();
     else if (percorso.startsWith('/utenti') && io.ruolo === 'admin') await paginaUtenti();
     else await paginaCorsi();
   } catch (e) {

@@ -49,6 +49,13 @@ Prima di salvare si vede un'anteprima con gli errori riga per riga.
 I corsi entrano in bozza, i committenti mancanti vengono creati, i corsi già presenti
 (stessa data, tipo, retraining, ora di inizio e sede) vengono saltati. Parser in `public/importa.js`.
 
+## Preventivi
+
+In **Preventivi** si crea un preventivo per un committente: oggetto, voci (descrizione, quantità, prezzo unitario
+IVA esclusa), aliquota IVA (0 per le operazioni esenti, con il motivo nelle note), validità e stato
+(bozza, inviato, accettato, rifiutato). Il numero è progressivo per anno (`3/2026`) e viene assegnato al primo salvataggio.
+**Stampa / PDF** salva e apre la stampa del browser con il documento impaginato; per il PDF si sceglie "Salva come PDF".
+
 ## Pubblicazione
 
 1. `npm run deploy`: pubblica il Worker (al primo giro crea anche il database D1), poi applica le migrazioni.

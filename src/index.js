@@ -366,6 +366,48 @@ async function servePaginaRichiesta(env, url) {
   return risposta;
 }
 
+// ---------- Preventivi ----------
+
+const STATI_PREVENTIVO = ['bozza', 'inviato', 'accettato', 'rifiutato'];
+
+async function listaPreventivi(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT p.id, p.anno, p.progressivo, p.data, p.oggetto, p.stato, p.iva, cm.nome AS committente,
+      (SELECT coalesce(sum((j.value ->> 'quantita') * (j.value ->> 'prezzo')), 0) FROM json_each(p.righe) j) AS imponibile
+    FROM preventivi p LEFT JOIN committenti cm ON cm.id = p.committente_id
+    ORDER BY p.anno DESC, p.progressivo DESC`).all();
+  return results;
+}
+
+async function dettaglioPreventivo(env, id) {
+  const preventivo = await env.DB.prepare(`SELECT p.*, cm.nome AS committente, cm.referente, cm.email, cm.telefono
+    FROM preventivi p LEFT JOIN committenti cm ON cm.id = p.committente_id WHERE p.id = ?`).bind(id).first();
+  if (!preventivo) throw new ErroreRichiesta('Preventivo non trovato', 404);
+  return { ...preventivo, righe: JSON.parse(preventivo.righe) };
+}
+
+async function salvaPreventivo(env, utente, id, body) {
+  richiedi(body, ['data']);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(body.data)) throw new ErroreRichiesta('Data non valida');
+  const righe = (body.righe || [])
+    .map((r) => ({ descrizione: String(r.descrizione || '').trim(), quantita: Number(r.quantita) || 0, prezzo: Number(r.prezzo) || 0 }))
+    .filter((r) => r.descrizione || r.prezzo);
+  const valori = [body.committente_id || null, body.data, Math.max(0, Math.floor(Number(body.validita_giorni)) || 30),
+    body.oggetto || null, JSON.stringify(righe), Number(body.iva) >= 0 ? Number(body.iva) : 22, body.note || null,
+    STATI_PREVENTIVO.includes(body.stato) ? body.stato : 'bozza'];
+  if (id) {
+    await env.DB.prepare(`UPDATE preventivi SET committente_id=?, data=?, validita_giorni=?, oggetto=?, righe=?, iva=?, note=?, stato=?
+      WHERE id=?`).bind(...valori, id).run();
+    return dettaglioPreventivo(env, id);
+  }
+  // Il numero segue l'anno della data del preventivo
+  const anno = Number(body.data.slice(0, 4));
+  ({ id } = await env.DB.prepare(`INSERT INTO preventivi (anno, progressivo, committente_id, data, validita_giorni, oggetto, righe, iva, note, stato, creato_da)
+    VALUES (?1, (SELECT coalesce(max(progressivo), 0) + 1 FROM preventivi WHERE anno = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+    RETURNING id`).bind(anno, ...valori, utente.id).first());
+  return dettaglioPreventivo(env, id);
+}
+
 // ---------- Utenti (solo admin) ----------
 
 async function salvaUtente(env, id, body) {
@@ -505,6 +547,15 @@ const rotte = [
   }],
   ['POST', /^\/api\/richieste\/(\d+)\/inviata$/, async ({ env, p }) => {
     await env.DB.prepare("UPDATE richieste SET inviata_il = datetime('now') WHERE id = ?").bind(Number(p[1])).run();
+    return { ok: true };
+  }],
+
+  ['GET', /^\/api\/preventivi$/, ({ env }) => listaPreventivi(env)],
+  ['POST', /^\/api\/preventivi$/, ({ env, utente, body }) => salvaPreventivo(env, utente, null, body)],
+  ['GET', /^\/api\/preventivi\/(\d+)$/, ({ env, p }) => dettaglioPreventivo(env, Number(p[1]))],
+  ['PUT', /^\/api\/preventivi\/(\d+)$/, ({ env, utente, body, p }) => salvaPreventivo(env, utente, Number(p[1]), body)],
+  ['DELETE', /^\/api\/preventivi\/(\d+)$/, async ({ env, p }) => {
+    await env.DB.prepare('DELETE FROM preventivi WHERE id = ?').bind(Number(p[1])).run();
     return { ok: true };
   }],
 
