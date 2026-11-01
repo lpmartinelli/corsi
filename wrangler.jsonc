@@ -11,8 +11,8 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // /d/<token> è il link personale dell'istruttore: il Worker serve disponibilita.html
-    "run_worker_first": ["/api/*", "/d/*"]
+    // /d/<token> è il link personale dell'istruttore (disponibilita.html), /a/<token> quello condiviso per l'anagrafica (anagrafica.html)
+    "run_worker_first": ["/api/*", "/d/*", "/a/*"]
   },
   "d1_databases": [
     {

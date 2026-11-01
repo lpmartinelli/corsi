@@ -28,7 +28,8 @@ async function listaIstruttori(env) {
   const { results } = await env.DB.prepare(`
     SELECT i.*, group_concat(ia.abilitazione) AS abilitazioni,
       (SELECT count(*) FROM assegnazioni a JOIN corsi c ON c.id = a.corso_id
-        WHERE a.istruttore_id = i.id AND c.stato != 'annullato' AND c.data >= date('now', '-12 months')) AS giornate
+        WHERE a.istruttore_id = i.id AND c.stato != 'annullato' AND c.data >= date('now', '-12 months')) AS giornate,
+      (SELECT count(*) FROM assegnazioni a WHERE a.istruttore_id = i.id) AS assegnazioni_totali
     FROM istruttori i LEFT JOIN istruttori_abilitazioni ia ON ia.istruttore_id = i.id
     GROUP BY i.id ORDER BY i.cognome, i.nome`).all();
   return results.map(conAbilitazioni);
@@ -43,20 +44,92 @@ async function salvaIstruttore(env, id, body) {
   const valori = [body.nome.trim(), body.cognome.trim(), body.telefono?.trim() || null, body.profilo,
     body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0, body.attivo === false ? 0 : 1, body.note || null];
 
+  // Salvata da un coordinatore, la scheda è verificata
   if (id) {
     await env.DB.prepare(`UPDATE istruttori SET nome=?, cognome=?, telefono=?, profilo=?, direttore=?, albo_ausl=?, irc=?, irccom=?,
-      attivo=?, note=? WHERE id=?`).bind(...valori, id).run();
+      attivo=?, note=?, da_verificare=0 WHERE id=?`).bind(...valori, id).run();
   } else {
     ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, profilo, direttore, albo_ausl, irc, irccom, attivo, note)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
   }
+  await salvaAbilitazioni(env, id, body.abilitazioni);
+  return { id };
+}
 
+async function salvaAbilitazioni(env, id, abilitazioni) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM istruttori_abilitazioni WHERE istruttore_id = ?').bind(id),
-    ...(body.abilitazioni || []).map((a) =>
+    ...(abilitazioni || []).map((a) =>
       env.DB.prepare('INSERT INTO istruttori_abilitazioni (istruttore_id, abilitazione) VALUES (?, ?)').bind(id, a)),
   ]);
-  return { id };
+}
+
+async function eliminaIstruttore(env, id) {
+  // Le assegnazioni non seguono l'istruttore a cascata: si tolgono insieme (disponibilità e richieste seguono da sole)
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM assegnazioni WHERE istruttore_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM istruttori WHERE id = ?').bind(id),
+  ]);
+  return { ok: true };
+}
+
+// ---------- Anagrafica compilata dagli istruttori (link condiviso nella chat) ----------
+
+const CHIAVE_LINK_ANAGRAFICA = 'link_anagrafica';
+
+async function linkAnagrafica(env) {
+  const riga = await env.DB.prepare('SELECT valore FROM impostazioni WHERE chiave = ?').bind(CHIAVE_LINK_ANAGRAFICA).first();
+  return { token: riga?.valore || null };
+}
+
+/** Un token nuovo invalida il link precedente; null lo disattiva. */
+async function impostaLinkAnagrafica(env, token) {
+  await env.DB.prepare(`INSERT INTO impostazioni (chiave, valore) VALUES (?, ?)
+    ON CONFLICT (chiave) DO UPDATE SET valore = excluded.valore`).bind(CHIAVE_LINK_ANAGRAFICA, token).run();
+  return { token };
+}
+
+async function controllaLinkAnagrafica(env, token) {
+  const { token: valido } = await linkAnagrafica(env);
+  if (!valido || !(await stringheUguali(token, valido))) throw new ErroreRichiesta('Link non valido o disattivato', 404);
+}
+
+async function paginaAnagrafica(env, token) {
+  await controllaLinkAnagrafica(env, token);
+  const [{ results: abilitazioni }, ente] = await env.DB.batch([
+    env.DB.prepare('SELECT codice FROM abilitazioni ORDER BY codice'),
+    env.DB.prepare("SELECT valore FROM impostazioni WHERE chiave = 'nome'"),
+  ]);
+  return { abilitazioni: abilitazioni.map((a) => a.codice), ente: ente.results[0]?.valore || null };
+}
+
+/**
+ * Chi è già in elenco (stesso nome e cognome) aggiorna la sua scheda, gli altri vengono aggiunti attivi.
+ * Il link è condiviso, quindi la scheda resta da verificare; i dati esistenti non vengono mai mostrati.
+ */
+async function compilaAnagrafica(env, token, body) {
+  await controllaLinkAnagrafica(env, token);
+  richiedi(body, ['nome', 'cognome', 'telefono', 'profilo']);
+  const testo = (v, max) => String(v).trim().replace(/\s+/g, ' ').slice(0, max);
+  const [nome, cognome, telefono] = [testo(body.nome, 60), testo(body.cognome, 60), testo(body.telefono, 30)];
+  if (!nome || !cognome) throw new ErroreRichiesta('Nome e cognome sono obbligatori');
+  if (!/^\+?[\d\s./-]{6,}$/.test(telefono)) throw new ErroreRichiesta('Numero di telefono non valido');
+  if (!['sanitario', 'tecnico'].includes(body.profilo)) throw new ErroreRichiesta('Profilo non valido');
+  const codici = (await env.DB.prepare('SELECT codice FROM abilitazioni').all()).results.map((a) => a.codice);
+  const valori = [nome, cognome, telefono, body.profilo, body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0];
+
+  let { id } = await env.DB.prepare('SELECT id FROM istruttori WHERE nome = ? COLLATE NOCASE AND cognome = ? COLLATE NOCASE ORDER BY id LIMIT 1')
+    .bind(nome, cognome).first() || {};
+  // Nome e cognome restano scritti come in elenco (l'istruttore potrebbe averli digitati tutti minuscoli)
+  if (id) {
+    await env.DB.prepare(`UPDATE istruttori SET telefono=?, profilo=?, direttore=?, albo_ausl=?, irc=?, irccom=?,
+      da_verificare=1 WHERE id=?`).bind(...valori.slice(2), id).run();
+  } else {
+    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, profilo, direttore, albo_ausl, irc, irccom, da_verificare)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
+  }
+  await salvaAbilitazioni(env, id, (body.abilitazioni || []).filter((a) => codici.includes(a)));
+  return { ok: true };
 }
 
 // ---------- Committenti ----------
@@ -357,8 +430,8 @@ async function rispondi(env, token, body) {
   return { ok: true };
 }
 
-async function servePaginaRichiesta(env, url) {
-  const pagina = await env.ASSETS.fetch(new URL('/disponibilita', url));
+async function servePaginaConToken(env, url, file) {
+  const pagina = await env.ASSETS.fetch(new URL(file, url));
   const risposta = new Response(pagina.body, pagina);
   // Il token è nell'URL: non deve finire nei referrer né nei motori di ricerca
   risposta.headers.set('Referrer-Policy', 'no-referrer');
@@ -526,6 +599,8 @@ const rottePubbliche = [
   ['POST', /^\/api\/auth\/primo-accesso$/, ({ env, request, body }) => primoAccesso(env, request, body)],
   ['GET', /^\/api\/pubblico\/([\w-]+)$/, ({ env, p }) => paginaRichiesta(env, p[1])],
   ['PUT', /^\/api\/pubblico\/([\w-]+)$/, ({ env, body, p }) => rispondi(env, p[1], body)],
+  ['GET', /^\/api\/anagrafica\/([\w-]+)$/, ({ env, p }) => paginaAnagrafica(env, p[1])],
+  ['POST', /^\/api\/anagrafica\/([\w-]+)$/, ({ env, body, p }) => compilaAnagrafica(env, p[1], body)],
   ['POST', /^\/api\/auth\/logout$/, async ({ env, request }) => {
     await chiudiSessione(env, request);
     return Response.json({ ok: true }, { headers: { 'Set-Cookie': cookieSessione(request, null) } });
@@ -540,6 +615,15 @@ const rotte = [
   ['GET', /^\/api\/istruttori$/, ({ env }) => listaIstruttori(env)],
   ['POST', /^\/api\/istruttori$/, ({ env, body }) => salvaIstruttore(env, null, body)],
   ['PUT', /^\/api\/istruttori\/(\d+)$/, ({ env, body, p }) => salvaIstruttore(env, Number(p[1]), body)],
+  // Disattivare è di tutti; eliminare solo dell'amministratore
+  ['PUT', /^\/api\/istruttori\/(\d+)\/attivo$/, async ({ env, body, p }) => {
+    await env.DB.prepare('UPDATE istruttori SET attivo = ? WHERE id = ?').bind(body.attivo ? 1 : 0, Number(p[1])).run();
+    return { ok: true };
+  }],
+  ['DELETE', /^\/api\/istruttori\/(\d+)$/, ({ env, p }) => eliminaIstruttore(env, Number(p[1])), 'admin'],
+  ['GET', /^\/api\/istruttori\/link$/, ({ env }) => linkAnagrafica(env)],
+  ['POST', /^\/api\/istruttori\/link$/, ({ env }) => impostaLinkAnagrafica(env, tokenLink())],
+  ['DELETE', /^\/api\/istruttori\/link$/, ({ env }) => impostaLinkAnagrafica(env, null)],
 
   ['GET', /^\/api\/committenti$/, async ({ env }) => (await env.DB.prepare('SELECT * FROM committenti ORDER BY nome').all()).results],
   ['POST', /^\/api\/committenti$/, ({ env, body }) => salvaCommittente(env, null, body)],
@@ -610,7 +694,8 @@ function trova(elenco, request, url) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/d/')) return servePaginaRichiesta(env, url);
+    if (url.pathname.startsWith('/d/')) return servePaginaConToken(env, url, '/disponibilita');
+    if (url.pathname.startsWith('/a/')) return servePaginaConToken(env, url, '/anagrafica');
     try {
       const body = ['POST', 'PUT'].includes(request.method) ? await request.json().catch(() => ({})) : null;
       let utente = null;

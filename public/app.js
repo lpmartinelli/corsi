@@ -539,30 +539,111 @@ function campiIstruttore() {
 
 async function paginaIstruttori() {
   const istruttori = await api('GET', '/istruttori');
+  const admin = io.ruolo === 'admin';
+  const daVerificare = istruttori.filter((i) => i.da_verificare).length;
   app.innerHTML = `
-    <div class="barra"><h1>Istruttori</h1><button class="primario" id="nuovo">Nuovo istruttore</button></div>
+    <div class="barra"><h1>Istruttori</h1><div>
+      <button id="link-anagrafica">Link per l'anagrafica</button>
+      <button class="primario" id="nuovo">Nuovo istruttore</button>
+    </div></div>
+    ${daVerificare ? `<p class="muted">${daVerificare} ${daVerificare === 1 ? 'scheda compilata' : 'schede compilate'} dagli istruttori
+      da verificare: aprila, controlla e salva.</p>` : ''}
     <div class="tabella"><table>
-      <thead><tr><th>Nome</th><th>Telefono</th><th>Profilo</th><th>Direttore</th><th>Albo AUSL</th><th>IRC</th><th>Abilitazioni</th><th>Giornate 12 mesi</th></tr></thead>
+      <thead><tr><th>Nome</th><th>Telefono</th><th>Profilo</th><th>Direttore</th><th>Albo AUSL</th><th>IRC</th><th>Abilitazioni</th><th>Giornate 12 mesi</th><th></th></tr></thead>
       <tbody>${istruttori.map((i) => `
         <tr class="cliccabile ${i.attivo ? '' : 'spento'}" data-id="${i.id}">
-          <td>${esc(nomeCompleto(i))}</td><td>${esc(i.telefono)}</td>
+          <td>${esc(nomeCompleto(i))}${i.da_verificare ? ' <span class="etichetta forse">Da verificare</span>' : ''}</td><td>${esc(i.telefono)}</td>
           <td>${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}</td>
           <td>${i.direttore ? '✓' : ''}</td>
           <td>${i.albo_ausl ? '✓' : ''}</td>
           <td>${esc(certificazioni(i))}</td>
           <td>${i.abilitazioni.map((a) => `<span class="etichetta neutro">${esc(a)}</span>`).join(' ')}</td>
           <td>${i.giornate}</td>
-        </tr>`).join('') || `<tr><td colspan="8" class="muted">Nessun istruttore</td></tr>`}
+          <td>
+            <button class="piccolo" data-attivo="${i.id}">${i.attivo ? 'Disattiva' : 'Riattiva'}</button>
+            <button class="piccolo" data-elimina="${i.id}" ${admin ? '' : 'disabled title="Solo l\'amministratore può eliminare: puoi disattivare"'}>Elimina</button>
+          </td>
+        </tr>`).join('') || `<tr><td colspan="9" class="muted">Nessun istruttore</td></tr>`}
       </tbody>
     </table></div>`;
 
+  const istruttore = (el, attr) => istruttori.find((x) => x.id === Number(el.dataset[attr]));
+  document.getElementById('link-anagrafica').onclick = mostraLinkAnagrafica;
   document.getElementById('nuovo').onclick = async () => {
     if (await moduloESalva('Nuovo istruttore', campiIstruttore(), { attivo: true, profilo: 'sanitario' }, (d) => api('POST', '/istruttori', d))) paginaIstruttori();
   };
   app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = async () => {
-    const i = istruttori.find((x) => x.id === Number(tr.dataset.id));
+    const i = istruttore(tr, 'id');
     if (await moduloESalva('Modifica istruttore', campiIstruttore(), i, (d) => api('PUT', `/istruttori/${i.id}`, d))) paginaIstruttori();
   });
+  app.querySelectorAll('[data-attivo]').forEach((b) => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    const i = istruttore(b, 'attivo');
+    await api('PUT', `/istruttori/${i.id}/attivo`, { attivo: !i.attivo });
+    paginaIstruttori();
+  });
+  app.querySelectorAll('[data-elimina]').forEach((b) => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    const i = istruttore(b, 'elimina');
+    if (!confirm(`Eliminare definitivamente ${nomeCompleto(i)}? Si perdono anche le sue disponibilità e richieste.`
+      + (i.assegnazioni_totali ? `\n\nHa ${i.assegnazioni_totali} assegnazioni ai corsi (anche passati): verranno tolte dalle squadre.` : '')
+      + '\n\nPer chi non insegna più è meglio "Disattiva": resta nello storico.')) return;
+    try {
+      await api('DELETE', `/istruttori/${i.id}`);
+    } catch (e) {
+      alert(e.message);
+    }
+    paginaIstruttori();
+  });
+}
+
+/** Link condiviso da mandare nella chat degli istruttori: ognuno compila la sua scheda. */
+async function mostraLinkAnagrafica() {
+  let { token } = await api('GET', '/istruttori/link');
+  const disegna = () => {
+    const link = `${location.origin}/a/${token}`;
+    const messaggio = `Ciao a tutti, per organizzare i corsi mi servono i vostri dati da istruttori (cellulare, profilo, abilitazioni). `
+      + `Compilate qui, ci vuole un minuto:\n${link}`;
+    dialogoForm.innerHTML = `
+      <h2>Link per l'anagrafica</h2>
+      <p>Mandalo nella chat degli istruttori: ognuno apre il link e inserisce i suoi dati.
+        Chi è già in elenco (stesso nome e cognome) aggiorna la sua scheda, gli altri vengono aggiunti.
+        Le schede compilate restano "Da verificare" finché non le apri e salvi.</p>
+      ${token ? `
+        <div class="link-attivazione"><input readonly value="${esc(link)}"><button type="button" id="copia">Copia link</button></div>
+        <div><button type="button" id="copia-messaggio">Copia messaggio per WhatsApp</button></div>
+        <p class="muted">Il link vale finché non lo disattivi o ne generi uno nuovo: fallo quando la raccolta è finita.</p>`
+        : '<p class="muted">Nessun link attivo.</p>'}
+      <div class="azioni">
+        ${token ? '<button type="button" id="disattiva">Disattiva link</button>' : ''}
+        <button type="button" id="genera">${token ? 'Genera nuovo link' : 'Crea link'}</button>
+        <button value="ok" class="primario">Chiudi</button>
+      </div>`;
+    const copia = (id, testo) => {
+      const b = dialogoForm.querySelector(id);
+      if (b) b.onclick = async () => {
+        await navigator.clipboard.writeText(testo);
+        b.textContent = 'Copiato';
+      };
+    };
+    copia('#copia', link);
+    copia('#copia-messaggio', messaggio);
+    dialogoForm.querySelector('#genera').onclick = async () => {
+      if (token && !confirm('Il link attuale smetterà di funzionare. Generarne uno nuovo?')) return;
+      ({ token } = await api('POST', '/istruttori/link'));
+      disegna();
+    };
+    const disattiva = dialogoForm.querySelector('#disattiva');
+    if (disattiva) disattiva.onclick = async () => {
+      if (!confirm('Disattivare il link? Chi lo apre non potrà più compilare la scheda.')) return;
+      ({ token } = await api('DELETE', '/istruttori/link'));
+      disegna();
+    };
+  };
+  disegna();
+  dialogo.onclose = () => paginaIstruttori();
+  dialogo.returnValue = '';
+  dialogo.showModal();
 }
 
 // ---------- Committenti ----------
