@@ -1072,15 +1072,30 @@ function disegnaElenchiCorsi(contenitore) {
   });
 }
 
-async function paginaImpostazioni() {
-  const imp = await api('GET', '/impostazioni');
+const SEZIONI_IMPOSTAZIONI = [['corsi', 'Corsi', '#/impostazioni'], ['preventivi', 'Preventivi', '#/impostazioni/preventivi']];
+
+function schedeImpostazioni(attiva) {
+  return `<nav class="schede">${SEZIONI_IMPOSTAZIONI.map(([v, t, href]) =>
+    `<a href="${href}" class="${v === attiva ? 'attivo' : ''}">${t}</a>`).join('')}</nav>`;
+}
+
+async function paginaImpostazioni(sezione) {
+  if (sezione === 'preventivi') return impostazioniPreventivi();
   // Aggiornati qui anche i conteggi d'uso, che servono a sapere cosa si può togliere
   [abilitazioni, stati] = await Promise.all([api('GET', '/abilitazioni'), api('GET', '/stati')]);
-  let logo = imp.logo;
   app.innerHTML = `
     <div class="barra"><h1>Impostazioni</h1></div>
-    <div id="elenchi-corsi"></div>
-    <div class="barra"><h1>Preventivi</h1><button class="primario" id="salva">Salva</button></div>
+    ${schedeImpostazioni('corsi')}
+    <div id="elenchi-corsi"></div>`;
+  disegnaElenchiCorsi(document.getElementById('elenchi-corsi'));
+}
+
+async function impostazioniPreventivi() {
+  const imp = await api('GET', '/impostazioni');
+  let logo = imp.logo;
+  app.innerHTML = `
+    <div class="barra"><h1>Impostazioni</h1><button class="primario" id="salva">Salva</button></div>
+    ${schedeImpostazioni('preventivi')}
     <h2>Logo</h2>
     <div class="logo-impostazioni">
       <div id="anteprima-logo"></div>
@@ -1099,7 +1114,6 @@ async function paginaImpostazioni() {
     document.getElementById('togli-logo').disabled = !logo;
   };
   disegnaLogo();
-  disegnaElenchiCorsi(document.getElementById('elenchi-corsi'));
   const file = document.getElementById('file-logo');
   document.getElementById('scegli-logo').onclick = () => file.click();
   file.onchange = async () => {
@@ -1116,10 +1130,10 @@ async function paginaImpostazioni() {
     logo = null;
     disegnaLogo();
   };
-  app.querySelectorAll('form.modulo-preventivo').forEach((f) => f.onsubmit = (ev) => ev.preventDefault());
+  app.querySelectorAll('form').forEach((f) => f.onsubmit = (ev) => ev.preventDefault());
   document.getElementById('salva').onclick = async (ev) => {
     const dati = { logo };
-    app.querySelectorAll('form.modulo-preventivo').forEach((f) => Object.assign(dati, Object.fromEntries(new FormData(f))));
+    app.querySelectorAll('form').forEach((f) => Object.assign(dati, Object.fromEntries(new FormData(f))));
     try {
       await api('PUT', '/impostazioni', dati);
       ev.target.textContent = 'Salvato';
@@ -1283,7 +1297,7 @@ async function naviga() {
     else if ((m = percorso.match(/^\/preventivo\/(\d+|nuovo)$/))) await paginaPreventivo(m[1] === 'nuovo' ? null : Number(m[1]));
     else if (percorso.startsWith('/preventivi')) await paginaPreventivi();
     else if (percorso.startsWith('/utenti') && io.ruolo === 'admin') await paginaUtenti();
-    else if (percorso.startsWith('/impostazioni') && io.ruolo === 'admin') await paginaImpostazioni();
+    else if ((m = percorso.match(/^\/impostazioni(?:\/(\w+))?$/)) && io.ruolo === 'admin') await paginaImpostazioni(m[1]);
     else await paginaCorsi();
   } catch (e) {
     if (io) app.innerHTML = `<p class="errore">${esc(e.message)}</p>`; // senza io è già stato mostrato il login

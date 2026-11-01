@@ -67,7 +67,7 @@ In **Preventivi** si crea un preventivo per un committente, stampato come letter
 Un nuovo preventivo parte dal modello in uso (1 modulo BLSD fino a 18 allievi, € 750,00 + iva se dovuta,
 aula a cura del richiedente, attestato, comunicazione all'AUSL).
 L'IVA può essere "+ iva se dovuta", 22% o esente. L'indirizzo del destinatario si inserisce nel committente.
-In **Impostazioni** (solo amministratore) si cambiano intestazione, logo, città, firma, piede di pagina e i testi
+In **Impostazioni** → **Preventivi** (solo amministratore) si cambiano intestazione, logo, città, firma, piede di pagina e i testi
 predefiniti; stanno nella tabella `impostazioni`. Nel modello della voce `{tipo}` è il corso, `{moduli}` diventa
 "1 modulo" / "2 moduli" e `{allievi}` gli allievi; nel preventivo si scelgono per ogni voce e la descrizione si riscrive da sola. Il logo viene ridotto nel browser a 600 px e salvato come PNG nel database.
 Nelle condizioni, i paragrafi separati da una riga vuota che iniziano con "Etichetta:" diventano punti dell'elenco. Le note interne non vengono stampate.
@@ -76,7 +76,7 @@ Il numero è progressivo per anno (`3/2026`) e viene assegnato al primo salvatag
 
 ## Tipi di corso e stati
 
-In **Impostazioni** si aggiungono e si tolgono anche i tipi di corso (tabella `abilitazioni`, che sono pure le abilitazioni
+In **Impostazioni** → **Corsi** si aggiungono e si tolgono i tipi di corso (tabella `abilitazioni`, che sono pure le abilitazioni
 degli istruttori) e gli stati dei corsi (tabella `stati_corso`). Il codice di un tipo è in maiuscolo e senza spazi, come nei
 file di import. Un tipo o uno stato usato da qualche corso non si può togliere; togliendo un tipo, l'abilitazione sparisce
 dalle schede degli istruttori. Bozza, Richiesta inviata e Annullato servono all'app e restano sempre.
