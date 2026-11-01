@@ -74,6 +74,13 @@ Nelle condizioni, i paragrafi separati da una riga vuota che iniziano con "Etich
 Il numero è progressivo per anno (`3/2026`) e viene assegnato al primo salvataggio.
 **Stampa / PDF** salva e apre la stampa del browser con la lettera impaginata; per il PDF si sceglie "Salva come PDF".
 
+## Tipi di corso e stati
+
+In **Impostazioni** si aggiungono e si tolgono anche i tipi di corso (tabella `abilitazioni`, che sono pure le abilitazioni
+degli istruttori) e gli stati dei corsi (tabella `stati_corso`). Il codice di un tipo è in maiuscolo e senza spazi, come nei
+file di import. Un tipo o uno stato usato da qualche corso non si può togliere; togliendo un tipo, l'abilitazione sparisce
+dalle schede degli istruttori. Bozza, Richiesta inviata e Annullato servono all'app e restano sempre.
+
 ## Pubblicazione
 
 1. `npm run deploy`: pubblica il Worker (al primo giro crea anche il database D1), poi applica le migrazioni.

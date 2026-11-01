@@ -7,6 +7,7 @@ const dialogoForm = document.getElementById('dialogo-form');
 
 let io = null;
 let abilitazioni = [];
+let stati = []; // stati dei corsi, modificabili dalle Impostazioni
 
 // ---------- Utilità ----------
 
@@ -91,7 +92,7 @@ async function moduloESalva(titolo, campi, valori, salva) {
 
 // ---------- Corsi ----------
 
-const STATI = [['bozza', 'Bozza'], ['richiesta', 'Richiesta inviata'], ['assegnato', 'Assegnato'], ['svolto', 'Svolto'], ['annullato', 'Annullato']];
+const nomeStato = (codice) => stati.find((s) => s.codice === codice)?.etichetta || codice;
 const CATEGORIE = [['volontari', 'Volontari del soccorso'], ['ausl', 'AUSL']];
 const nomeTipo = (c) => c.tipo + (c.retraining ? 'r' : '');
 const nomeCategoria = (c) => (c.categoria === 'ausl' ? 'AUSL' : 'Volontari') + (c.circuito ? ` · ${c.circuito}` : '') + (c.retraining ? ' · retraining' : '');
@@ -111,7 +112,7 @@ async function campiCorso() {
     { nome: 'committente_id', etichetta: 'Committente', tipo: 'select', opzioni: [['', '—'], ...committenti.map((c) => [c.id, c.nome])] },
     { nome: 'istruttori_richiesti', etichetta: 'Istruttori richiesti (direttore incluso)', tipo: 'number', extra: 'min="1"' },
     { nome: 'coordinatore_id', etichetta: 'Coordinato da', tipo: 'select', opzioni: [['', '—'], ...utenti.filter((u) => u.attivo).map((u) => [u.id, u.nome])] },
-    { nome: 'stato', etichetta: 'Stato', tipo: 'select', opzioni: STATI },
+    { nome: 'stato', etichetta: 'Stato', tipo: 'select', opzioni: stati.map((s) => [s.codice, s.etichetta]) },
     { nome: 'note', etichetta: 'Note', tipo: 'textarea' },
   ];
 }
@@ -145,7 +146,7 @@ async function paginaCorsi() {
           <td>${esc(c.sede)}</td><td>${esc(c.committente)}</td>
           <td><span class="etichetta ${c.assegnati >= c.istruttori_richiesti ? 'si' : 'neutro'}">${c.assegnati}/${c.istruttori_richiesti}</span></td>
           <td>${c.disponibili}</td>
-          <td>${esc(STATI.find(([v]) => v === c.stato)[1])}</td>
+          <td>${esc(nomeStato(c.stato))}</td>
         </tr>`).join('') || `<tr><td colspan="10" class="muted">Nessun corso</td></tr>`}
       </tbody>
     </table></div>
@@ -299,7 +300,7 @@ function disegnaCorso({ corso, candidati, avvisi }) {
       <div><span>Sede</span>${esc(corso.sede || '—')}</div>
       <div><span>Committente</span>${esc(corso.committente || '—')}</div>
       <div><span>Squadra</span>${squadra.length}/${corso.istruttori_richiesti}</div>
-      <div><span>Stato</span>${esc(STATI.find(([v]) => v === corso.stato)[1])}</div>
+      <div><span>Stato</span>${esc(nomeStato(corso.stato))}</div>
       ${corso.note ? `<div><span>Note</span>${esc(corso.note)}</div>` : ''}
     </div>
     ${avvisi.length
@@ -1005,11 +1006,81 @@ const CAMPI_IMPOSTAZIONI = [
   ]],
 ];
 
+/** Tipi di corso e stati: si aggiungono e si tolgono subito, senza il pulsante Salva. */
+function disegnaElenchiCorsi(contenitore) {
+  const uso = (n, uno, molti) => (n ? `${n} ${n === 1 ? uno : molti}` : '');
+  contenitore.innerHTML = `
+    <h2>Tipi di corso</h2>
+    <p class="muted">Sono anche le abilitazioni degli istruttori. Un tipo si può togliere solo se nessun corso lo usa.</p>
+    <div class="tabella"><table>
+      <thead><tr><th>Codice</th><th>Descrizione</th><th>Uso</th><th></th></tr></thead>
+      <tbody>${abilitazioni.map((a) => `
+        <tr><td><strong>${esc(a.codice)}</strong></td><td>${esc(a.descrizione)}</td>
+          <td class="muted">${esc([uso(a.corsi, 'corso', 'corsi'), uso(a.istruttori, 'istruttore', 'istruttori')].filter(Boolean).join(' · ') || '—')}</td>
+          <td class="azioni-riga"><button class="piccolo" data-togli-tipo="${esc(a.codice)}"
+            ${a.corsi ? 'disabled title="Usato da corsi esistenti"' : ''}>Togli</button></td></tr>`).join('')
+        || '<tr><td colspan="4" class="muted">Nessun tipo di corso</td></tr>'}
+      </tbody>
+    </table></div>
+    <form class="filtri" id="nuovo-tipo">
+      <input name="codice" placeholder="Codice, es. BLSD" required maxlength="20" spellcheck="false" style="text-transform: uppercase">
+      <input name="descrizione" placeholder="Descrizione (facoltativa)" maxlength="120">
+      <button class="primario">Aggiungi tipo</button>
+    </form>
+
+    <h2>Stati dei corsi</h2>
+    <p class="muted">Bozza, Richiesta inviata e Annullato servono all'app e restano. Uno stato si può togliere solo se nessun corso lo usa.</p>
+    <div class="tabella"><table>
+      <thead><tr><th>Stato</th><th>Uso</th><th></th></tr></thead>
+      <tbody>${stati.map((s) => `
+        <tr><td><strong>${esc(s.etichetta)}</strong></td><td class="muted">${uso(s.corsi, 'corso', 'corsi') || '—'}</td>
+          <td class="azioni-riga"><button class="piccolo" data-togli-stato="${esc(s.codice)}"
+            ${s.sistema ? 'disabled title="Serve all\'app"' : s.corsi ? 'disabled title="Usato da corsi esistenti"' : ''}>Togli</button></td></tr>`).join('')}
+      </tbody>
+    </table></div>
+    <form class="filtri" id="nuovo-stato">
+      <input name="etichetta" placeholder="Nuovo stato, es. Da fatturare" required maxlength="40">
+      <button class="primario">Aggiungi stato</button>
+    </form>`;
+
+  const esegui = async (azione) => {
+    try {
+      await azione();
+      disegnaElenchiCorsi(contenitore);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  contenitore.querySelector('#nuovo-tipo').onsubmit = (ev) => {
+    ev.preventDefault();
+    esegui(async () => abilitazioni = await api('POST', '/abilitazioni', Object.fromEntries(new FormData(ev.target))));
+  };
+  contenitore.querySelector('#nuovo-stato').onsubmit = (ev) => {
+    ev.preventDefault();
+    esegui(async () => stati = await api('POST', '/stati', Object.fromEntries(new FormData(ev.target))));
+  };
+  contenitore.querySelectorAll('[data-togli-tipo]').forEach((b) => b.onclick = () => {
+    const a = abilitazioni.find((x) => x.codice === b.dataset.togliTipo);
+    if (!confirm(`Togliere il tipo di corso ${a.codice}?`
+      + (a.istruttori ? `\n\n${a.istruttori} istruttori hanno questa abilitazione: verrà tolta dalle loro schede.` : ''))) return;
+    esegui(async () => abilitazioni = await api('DELETE', `/abilitazioni/${encodeURIComponent(a.codice)}`));
+  });
+  contenitore.querySelectorAll('[data-togli-stato]').forEach((b) => b.onclick = () => {
+    const s = stati.find((x) => x.codice === b.dataset.togliStato);
+    if (!confirm(`Togliere lo stato "${s.etichetta}"?`)) return;
+    esegui(async () => stati = await api('DELETE', `/stati/${encodeURIComponent(s.codice)}`));
+  });
+}
+
 async function paginaImpostazioni() {
   const imp = await api('GET', '/impostazioni');
+  // Aggiornati qui anche i conteggi d'uso, che servono a sapere cosa si può togliere
+  [abilitazioni, stati] = await Promise.all([api('GET', '/abilitazioni'), api('GET', '/stati')]);
   let logo = imp.logo;
   app.innerHTML = `
-    <div class="barra"><h1>Impostazioni</h1><button class="primario" id="salva">Salva</button></div>
+    <div class="barra"><h1>Impostazioni</h1></div>
+    <div id="elenchi-corsi"></div>
+    <div class="barra"><h1>Preventivi</h1><button class="primario" id="salva">Salva</button></div>
     <h2>Logo</h2>
     <div class="logo-impostazioni">
       <div id="anteprima-logo"></div>
@@ -1028,6 +1099,7 @@ async function paginaImpostazioni() {
     document.getElementById('togli-logo').disabled = !logo;
   };
   disegnaLogo();
+  disegnaElenchiCorsi(document.getElementById('elenchi-corsi'));
   const file = document.getElementById('file-logo');
   document.getElementById('scegli-logo').onclick = () => file.click();
   file.onchange = async () => {
@@ -1044,10 +1116,10 @@ async function paginaImpostazioni() {
     logo = null;
     disegnaLogo();
   };
-  app.querySelectorAll('form').forEach((f) => f.onsubmit = (ev) => ev.preventDefault());
+  app.querySelectorAll('form.modulo-preventivo').forEach((f) => f.onsubmit = (ev) => ev.preventDefault());
   document.getElementById('salva').onclick = async (ev) => {
     const dati = { logo };
-    app.querySelectorAll('form').forEach((f) => Object.assign(dati, Object.fromEntries(new FormData(f))));
+    app.querySelectorAll('form.modulo-preventivo').forEach((f) => Object.assign(dati, Object.fromEntries(new FormData(f))));
     try {
       await api('PUT', '/impostazioni', dati);
       ev.target.textContent = 'Salvato';
@@ -1186,7 +1258,7 @@ function mostraIntestazione() {
 
 async function entra(utente) {
   io = utente;
-  abilitazioni = await api('GET', '/abilitazioni');
+  [abilitazioni, stati] = await Promise.all([api('GET', '/abilitazioni'), api('GET', '/stati')]);
   mostraIntestazione();
   if (!location.hash.startsWith('#/corsi') && !location.hash.match(/^#\/(corso|invio|nuova-richiesta|richieste|istruttori|committenti|preventiv|utenti|impostazioni)/)) location.hash = '#/corsi';
   else naviga();

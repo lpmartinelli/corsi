@@ -173,6 +173,9 @@ async function listaCorsi(env, url) {
 
 async function salvaCorso(env, id, body) {
   richiedi(body, ['tipo', 'data']);
+  if (body.stato && !(await env.DB.prepare('SELECT 1 FROM stati_corso WHERE codice = ?').bind(body.stato).first())) {
+    throw new ErroreRichiesta('Stato non valido: forse è stato tolto dalle Impostazioni');
+  }
   const valori = [body.committente_id || null, body.categoria || 'volontari', body.circuito || null, body.tipo, body.retraining ? 1 : 0,
     body.data, body.ora_inizio || null, body.ora_fine || null, body.sede || null, Number(body.istruttori_richiesti) || 2,
     body.coordinatore_id || null, body.stato || 'bozza', body.note || null];
@@ -521,6 +524,72 @@ async function salvaImpostazioni(env, body) {
   return leggiImpostazioni(env);
 }
 
+// ---------- Tipi di corso e stati (dalle Impostazioni) ----------
+
+// Il tipo di un corso è un'abilitazione: il conteggio dice se si può togliere
+async function listaTipiCorso(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT a.*, (SELECT count(*) FROM corsi WHERE tipo = a.codice) AS corsi,
+      (SELECT count(*) FROM istruttori_abilitazioni WHERE abilitazione = a.codice) AS istruttori
+    FROM abilitazioni a ORDER BY a.codice`).all();
+  return results;
+}
+
+/** Il codice si scrive come nei file di import (public/importa.js): maiuscolo, senza spazi. */
+async function aggiungiTipoCorso(env, body) {
+  richiedi(body, ['codice']);
+  const codice = String(body.codice).toUpperCase().replace(/\s+/g, '');
+  if (!/^[A-Z0-9][A-Z0-9-]{0,19}$/.test(codice)) throw new ErroreRichiesta('Codice non valido: lettere, numeri e trattini, al massimo 20');
+  if (await env.DB.prepare('SELECT 1 FROM abilitazioni WHERE codice = ?').bind(codice).first()) throw new ErroreRichiesta(`${codice} esiste già`);
+  const descrizione = String(body.descrizione || '').trim().slice(0, 120) || codice;
+  await env.DB.prepare('INSERT INTO abilitazioni (codice, descrizione) VALUES (?, ?)').bind(codice, descrizione).run();
+  return listaTipiCorso(env);
+}
+
+/** Si toglie solo se nessun corso lo usa; agli istruttori si toglie l'abilitazione. */
+async function eliminaTipoCorso(env, codice) {
+  const { corsi } = await env.DB.prepare('SELECT count(*) AS corsi FROM corsi WHERE tipo = ?').bind(codice).first();
+  if (corsi) throw new ErroreRichiesta(`${codice} è il tipo di ${corsi === 1 ? 'un corso' : `${corsi} corsi`}: non si può togliere`);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM istruttori_abilitazioni WHERE abilitazione = ?').bind(codice),
+    env.DB.prepare('DELETE FROM abilitazioni WHERE codice = ?').bind(codice),
+  ]);
+  return listaTipiCorso(env);
+}
+
+async function listaStatiCorso(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT s.*, (SELECT count(*) FROM corsi WHERE stato = s.codice) AS corsi
+    FROM stati_corso s ORDER BY s.ordine, s.codice`).all();
+  return results;
+}
+
+/** Il codice si ricava dall'etichetta: "Da fatturare" → da_fatturare. */
+async function aggiungiStatoCorso(env, body) {
+  richiedi(body, ['etichetta']);
+  const etichetta = String(body.etichetta).trim().replace(/\s+/g, ' ').slice(0, 40);
+  const codice = etichetta.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  if (!codice) throw new ErroreRichiesta('Nome dello stato non valido');
+  if (await env.DB.prepare('SELECT 1 FROM stati_corso WHERE codice = ? OR etichetta = ? COLLATE NOCASE').bind(codice, etichetta).first()) {
+    throw new ErroreRichiesta(`Lo stato "${etichetta}" esiste già`);
+  }
+  await env.DB.prepare(`INSERT INTO stati_corso (codice, etichetta, ordine)
+    VALUES (?, ?, (SELECT coalesce(max(ordine), 0) + 1 FROM stati_corso))`).bind(codice, etichetta).run();
+  return listaStatiCorso(env);
+}
+
+async function eliminaStatoCorso(env, codice) {
+  const stato = await env.DB.prepare(`SELECT s.*, (SELECT count(*) FROM corsi WHERE stato = s.codice) AS corsi
+    FROM stati_corso s WHERE codice = ?`).bind(codice).first();
+  if (!stato) throw new ErroreRichiesta('Stato inesistente', 404);
+  if (stato.sistema) throw new ErroreRichiesta(`"${stato.etichetta}" serve all'app: non si può togliere`);
+  if (stato.corsi) {
+    throw new ErroreRichiesta(`"${stato.etichetta}" è lo stato di ${stato.corsi === 1 ? 'un corso' : `${stato.corsi} corsi`}: cambialo prima di toglierlo`);
+  }
+  await env.DB.prepare('DELETE FROM stati_corso WHERE codice = ?').bind(codice).run();
+  return listaStatiCorso(env);
+}
+
 // ---------- Utenti (solo admin) ----------
 
 async function salvaUtente(env, id, body) {
@@ -619,7 +688,12 @@ const rottePubbliche = [
 const rotte = [
   ['GET', /^\/api\/me$/, ({ utente }) => pubblico(utente)],
   ['POST', /^\/api\/auth\/password$/, ({ env, utente, body }) => cambiaPassword(env, utente, body)],
-  ['GET', /^\/api\/abilitazioni$/, async ({ env }) => (await env.DB.prepare('SELECT * FROM abilitazioni ORDER BY codice').all()).results],
+  ['GET', /^\/api\/abilitazioni$/, ({ env }) => listaTipiCorso(env)],
+  ['POST', /^\/api\/abilitazioni$/, ({ env, body }) => aggiungiTipoCorso(env, body), 'admin'],
+  ['DELETE', /^\/api\/abilitazioni\/([^/]+)$/, ({ env, p }) => eliminaTipoCorso(env, decodeURIComponent(p[1])), 'admin'],
+  ['GET', /^\/api\/stati$/, ({ env }) => listaStatiCorso(env)],
+  ['POST', /^\/api\/stati$/, ({ env, body }) => aggiungiStatoCorso(env, body), 'admin'],
+  ['DELETE', /^\/api\/stati\/([^/]+)$/, ({ env, p }) => eliminaStatoCorso(env, decodeURIComponent(p[1])), 'admin'],
 
   ['GET', /^\/api\/istruttori$/, ({ env }) => listaIstruttori(env)],
   ['POST', /^\/api\/istruttori$/, ({ env, body }) => salvaIstruttore(env, null, body)],
