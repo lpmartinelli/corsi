@@ -196,30 +196,35 @@ button:disabled { opacity: .5; cursor: default; }
 @media print {
   body { background: #fff; }
   body > :not(#foglio-stampa) { display: none !important; }
-  @page { size: A4; margin: 15mm 18mm 12mm; }
-  #foglio-stampa { display: block; color: #000; font: 11pt/1.4 Calibri, Carlito, 'Segoe UI', sans-serif; }
-  #foglio-stampa p, #foglio-stampa ul { margin: 0 0 14pt; }
-  #foglio-stampa .mittente { display: flex; align-items: center; gap: 16px; margin-bottom: 70pt; padding: 0; background: none; border: 0; }
-  #foglio-stampa .mittente > div { flex: 1; text-align: center; color: #1f2f6b; font: 12pt 'Times New Roman', Times, serif; }
+  @page { size: A4; margin: 15mm 20mm 12mm; }
+  /* Un solo carattere per tutto il testo; il serif resta solo nell'intestazione */
+  #foglio-stampa { display: block; color: #000; font: 11pt/1.4 Calibri, Carlito, 'Segoe UI', Arial, sans-serif;
+    padding-bottom: 16mm; orphans: 3; widows: 3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #foglio-stampa p, #foglio-stampa ul { margin: 0 0 10pt; }
+  #foglio-stampa .mittente { display: flex; align-items: center; gap: 16px; margin-bottom: 36pt; padding: 0 0 8pt;
+    background: none; border: 0; border-bottom: .75pt solid #1f2f6b; border-image: none; }
+  #foglio-stampa .mittente > div { flex: 1; text-align: center; color: #1f2f6b; font: 12pt/1.25 'Times New Roman', Times, serif; }
   #foglio-stampa .mittente .nome { font-size: 22pt; }
-  #foglio-stampa .logo { width: 30mm; }
-  #foglio-stampa .destinatario { display: flex; gap: 6px; margin: 0 0 70pt 52%; font: italic 700 11pt 'Times New Roman', Times, serif; }
-  #foglio-stampa .spett { font-style: normal; }
-  #foglio-stampa .indirizzo { color: #777; }
-  #foglio-stampa .oggetto { margin-bottom: 18pt; }
-  #foglio-stampa .premessa { text-indent: 4em; text-align: justify; margin-bottom: 26pt; }
-  #foglio-stampa .elenco { list-style: none; padding-left: 18pt; }
-  #foglio-stampa .elenco li { position: relative; padding-left: 18pt; }
-  #foglio-stampa .elenco li::before { content: '➢'; position: absolute; left: 0; }
-  #foglio-stampa .voci { margin-bottom: 20pt; }
+  #foglio-stampa .logo { width: 28mm; }
+  #foglio-stampa .destinatario { display: flex; gap: 6px; margin: 0 0 36pt 55%; line-height: 1.3; }
+  #foglio-stampa .ente { font-weight: 700; }
+  #foglio-stampa .indirizzo { color: #444; }
+  #foglio-stampa .oggetto { font-weight: 700; margin-bottom: 16pt; }
+  #foglio-stampa .premessa { text-indent: 2.5em; text-align: justify; margin-bottom: 14pt; }
+  #foglio-stampa .elenco { list-style: none; padding-left: 12pt; }
+  #foglio-stampa .elenco li { position: relative; padding-left: 16pt; margin-bottom: 4pt; text-align: justify; break-inside: avoid; }
+  /* Calibri e Times non hanno la freccia: si prende da un font di simboli, sempre lo stesso */
+  #foglio-stampa .elenco li::before { content: '➢'; position: absolute; left: 0; font-family: 'Segoe UI Symbol', 'DejaVu Sans', sans-serif; }
+  #foglio-stampa .voci { margin-bottom: 14pt; }
   #foglio-stampa .sottolineato { text-decoration: underline; }
-  #foglio-stampa .paragrafo { font: 12pt/1.3 'Times New Roman', Times, serif; text-align: justify; margin-bottom: 18pt; }
-  #foglio-stampa .saluti { text-indent: 2.5em; margin-top: 36pt; }
-  #foglio-stampa .chiusura { display: flex; justify-content: space-between; align-items: flex-start; font: 12pt 'Times New Roman', Times, serif; }
-  #foglio-stampa .firma { font-size: 8.5pt; text-align: center; margin-right: 10%; }
+  #foglio-stampa .paragrafo { text-align: justify; }
+  #foglio-stampa .saluti { text-indent: 2.5em; margin-top: 18pt; }
+  #foglio-stampa .chiusura { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 18pt; break-inside: avoid; }
+  #foglio-stampa .firma { text-align: center; margin-right: 6%; }
   #foglio-stampa .paragrafo, #foglio-stampa .saluti, #foglio-stampa .premessa { white-space: pre-line; }
-  /* La lettera sta in una pagina: il piede si fissa in fondo */
-  #foglio-stampa footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; }
+  /* Il piede si fissa in fondo; il padding del foglio gli lascia posto sotto la firma */
+  #foglio-stampa footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8.5pt; line-height: 1.3;
+    color: #333; padding-top: 4pt; border-top: .5pt solid #999; }
 }
 
 /* Tabella che va a capo invece di scorrere in orizzontale; su schermi stretti ogni riga diventa una scheda */

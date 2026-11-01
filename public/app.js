@@ -932,7 +932,7 @@ async function stampaPreventivo(p, imp) {
     const punto = s.match(/^([^:\n]{2,40}):\s*([\s\S]*)$/);
     if (punto) return `<ul class="elenco"><li><strong>${esc(punto[1])}:</strong> ${esc(punto[2])}</li></ul>`;
     return `<p class="${i === paragrafi.length - 1 ? 'saluti' : 'paragrafo'}">${esc(s)}</p>`;
-  }).join('');
+  }).join('').replaceAll('</ul><ul class="elenco">', ''); // punti consecutivi in un solo elenco
   const dataLunga = new Date(p.data + 'T12:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
   let foglio = document.getElementById('foglio-stampa');
   if (!foglio) {
