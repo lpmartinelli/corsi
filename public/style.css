@@ -16,8 +16,28 @@
   --no: #b42318;
   --no-bg: #fef3f2;
 }
+/* Tema scuro: segue il sistema, a meno che l'utente abbia scelto (data-tema, vedi tema.js) */
+:root { color-scheme: light; }
+:root[data-tema="scuro"] {
+  color-scheme: dark;
+  --bg: #0b1717;
+  --card: #122121;
+  --text: #e6f2f2;
+  --muted: #8fa8a8;
+  --border: #233a3a;
+  --accent: #00d1d1;
+  --accent-text: #002e2e;
+  --link: #8e9bff;
+  --ok: #75e0a7;
+  --ok-bg: #0b2a1c;
+  --warn: #fec84b;
+  --warn-bg: #2e2208;
+  --no: #fda29b;
+  --no-bg: #2f1210;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-tema="chiaro"]) {
+    color-scheme: dark;
     --bg: #0b1717;
     --card: #122121;
     --text: #e6f2f2;
@@ -90,6 +110,7 @@ button, .bottone {
 }
 button.primario { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 button.piccolo { padding: 3px 9px; font-size: 13px; }
+.tema-angolo { position: fixed; top: 10px; right: 12px; z-index: 1; }
 
 .etichetta { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
 .si { background: var(--ok-bg); color: var(--ok); }
