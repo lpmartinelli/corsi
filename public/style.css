@@ -194,6 +194,13 @@ button:disabled { opacity: .5; cursor: default; }
 .adatta td .etichetta { margin: 1px 0; }
 .adatta .contatti { overflow-wrap: anywhere; }
 .adatta .azioni-riga { white-space: nowrap; text-align: right; }
+.adatta .nominativo .etichetta { margin-top: 4px; }
+.adatta .contatti div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.adatta .qualifiche { min-width: 220px; }
+.adatta .qualifiche .etichette { display: flex; flex-wrap: wrap; gap: 4px; }
+.adatta .qualifiche .etichette + .etichette { margin-top: 6px; }
+.adatta .qualifiche .etichetta { margin: 0; }
+.adatta .numero { text-align: center; }
 
 @media (max-width: 700px) {
   .adatta thead { display: none; }
@@ -203,6 +210,7 @@ button:disabled { opacity: .5; cursor: default; }
   .adatta td:empty { display: none; }
   .adatta td[data-etichetta]::before { content: attr(data-etichetta) ': '; color: var(--muted); }
   .adatta .azioni-riga { text-align: left; padding-top: 6px; }
+  .adatta .numero { text-align: left; }
 }
 
 @media (max-width: 560px) {

@@ -539,6 +539,16 @@ function campiIstruttore() {
   ];
 }
 
+// Abilitazioni nell'ordine dell'elenco generale; quelle sconosciute in fondo, alfabetiche.
+function ordinaAbilitazioni(codici) {
+  const pos = (c) => { const p = abilitazioni.findIndex((a) => a.codice === c); return p < 0 ? Infinity : p; };
+  return [...codici].sort((a, b) => pos(a) - pos(b) || a.localeCompare(b));
+}
+
+function gruppoEtichette(voci, classe) {
+  return voci.length ? `<div class="etichette">${voci.map((v) => `<span class="etichetta ${classe}">${esc(v)}</span>`).join('')}</div>` : '';
+}
+
 async function paginaIstruttori() {
   const istruttori = await api('GET', '/istruttori');
   const admin = io.ruolo === 'admin';
@@ -551,16 +561,16 @@ async function paginaIstruttori() {
     ${daVerificare ? `<p class="muted">${daVerificare} ${daVerificare === 1 ? 'scheda compilata' : 'schede compilate'} dagli istruttori
       da verificare: aprila, controlla e salva.</p>` : ''}
     <div class="tabella adatta"><table>
-      <thead><tr><th>Istruttore</th><th>Contatti</th><th>Qualifiche e abilitazioni</th><th>Giornate 12 mesi</th><th></th></tr></thead>
+      <thead><tr><th>Istruttore</th><th>Contatti</th><th>Qualifiche e abilitazioni</th><th class="numero">Giornate 12 mesi</th><th></th></tr></thead>
       <tbody>${istruttori.map((i) => `
         <tr class="cliccabile ${i.attivo ? '' : 'spento'}" data-id="${i.id}">
-          <td><strong>${esc(nomeCompleto(i))}</strong>${i.da_verificare ? ' <span class="etichetta forse">Da verificare</span>' : ''}
-            <div class="muted">${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}${i.attivo ? '' : ' · disattivato'}</div></td>
-          <td class="contatti">${esc(i.telefono || '—')}${i.email ? `<div class="muted">${esc(i.email)}</div>` : ''}</td>
-          <td>${[i.direttore && 'Direttore', i.albo_ausl && 'Albo AUSL', i.irc && 'IRC', i.irccom && 'IRCcom'].filter(Boolean)
-            .map((q) => `<span class="etichetta si">${q}</span>`).join(' ')}
-            ${i.abilitazioni.map((a) => `<span class="etichetta neutro">${esc(a)}</span>`).join(' ')}</td>
-          <td data-etichetta="Giornate 12 mesi">${i.giornate}</td>
+          <td class="nominativo"><strong>${esc(i.cognome)}</strong><div>${esc(i.nome)}</div>
+            <div class="muted">${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}${i.attivo ? '' : ' · disattivato'}</div>
+            ${i.da_verificare ? '<span class="etichetta forse">Da verificare</span>' : ''}</td>
+          <td class="contatti"><div>${esc(i.telefono || '—')}</div>${i.email ? `<div class="muted" title="${esc(i.email)}">${esc(i.email)}</div>` : ''}</td>
+          <td class="qualifiche">${gruppoEtichette([i.direttore && 'Direttore', i.albo_ausl && 'Albo AUSL', i.irc && 'IRC', i.irccom && 'IRCcom'].filter(Boolean), 'si')}
+            ${gruppoEtichette(ordinaAbilitazioni(i.abilitazioni), 'neutro')}</td>
+          <td class="numero" data-etichetta="Giornate 12 mesi">${i.giornate}</td>
           <td class="azioni-riga">
             <button class="piccolo" data-attivo="${i.id}">${i.attivo ? 'Disattiva' : 'Riattiva'}</button>
             <button class="piccolo" data-elimina="${i.id}" ${admin ? '' : 'disabled title="Solo l\'amministratore può eliminare: puoi disattivare"'}>Elimina</button>
