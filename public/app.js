@@ -549,10 +549,31 @@ function gruppoEtichette(voci, classe) {
   return voci.length ? `<div class="etichette">${voci.map((v) => `<span class="etichetta ${classe}">${esc(v)}</span>`).join('')}</div>` : '';
 }
 
+const FILTRI_STATO_ISTRUTTORE = [['', 'Attivi e disattivati'], ['attivi', 'Solo attivi'], ['disattivati', 'Solo disattivati']];
+const FILTRI_PROFILO = [['', 'Tutti i profili'], ['sanitario', 'Sanitari'], ['tecnico', 'Tecnici']];
+const FILTRI_QUALIFICA = [['', 'Tutte le qualifiche'], ['direttore', 'Direttori'], ['albo_ausl', 'Albo AUSL'], ['irc', 'IRC'], ['irccom', 'IRCcom'],
+  ['da_verificare', 'Da verificare']];
+
+// Restano impostati tornando sulla pagina dopo una modifica
+const filtriIstruttori = { testo: '', stato: '', profilo: '', qualifica: '', abilitazione: '' };
+
+function istruttoreVisibile(i, f) {
+  const testo = f.testo.trim().toLowerCase();
+  if (testo && ![i.nome, i.cognome, i.telefono, i.email, i.codice_fiscale].some((v) => v && String(v).toLowerCase().includes(testo))) return false;
+  if (f.stato === 'attivi' && !i.attivo) return false;
+  if (f.stato === 'disattivati' && i.attivo) return false;
+  if (f.profilo && i.profilo !== f.profilo) return false;
+  if (f.qualifica && !i[f.qualifica]) return false;
+  if (f.abilitazione && !i.abilitazioni.includes(f.abilitazione)) return false;
+  return true;
+}
+
 async function paginaIstruttori() {
   const istruttori = await api('GET', '/istruttori');
   const admin = io.ruolo === 'admin';
   const daVerificare = istruttori.filter((i) => i.da_verificare).length;
+  const f = filtriIstruttori;
+  const opzioni = (voci, valore) => voci.map(([v, t]) => `<option value="${esc(v)}" ${v === valore ? 'selected' : ''}>${esc(t)}</option>`).join('');
   app.innerHTML = `
     <div class="barra"><h1>Istruttori</h1><div>
       <button id="link-anagrafica">Link per l'anagrafica</button>
@@ -560,9 +581,27 @@ async function paginaIstruttori() {
     </div></div>
     ${daVerificare ? `<p class="muted">${daVerificare} ${daVerificare === 1 ? 'scheda compilata' : 'schede compilate'} dagli istruttori
       da verificare: aprila, controlla e salva.</p>` : ''}
+    <div class="filtri">
+      <input type="search" id="f-testo" placeholder="Cerca nome, telefono, email…" value="${esc(f.testo)}">
+      <select id="f-stato">${opzioni(FILTRI_STATO_ISTRUTTORE, f.stato)}</select>
+      <select id="f-profilo">${opzioni(FILTRI_PROFILO, f.profilo)}</select>
+      <select id="f-qualifica">${opzioni(FILTRI_QUALIFICA, f.qualifica)}</select>
+      <select id="f-abilitazione">${opzioni([['', 'Tutte le abilitazioni'], ...abilitazioni.map((a) => [a.codice, a.codice])], f.abilitazione)}</select>
+      <button id="f-azzera">Azzera filtri</button>
+      <span class="muted" id="f-conteggio"></span>
+    </div>
     <div class="tabella adatta"><table>
       <thead><tr><th>Istruttore</th><th>Contatti</th><th>Qualifiche e abilitazioni</th><th class="numero">Giornate 12 mesi</th><th></th></tr></thead>
-      <tbody>${istruttori.map((i) => `
+      <tbody></tbody>
+    </table></div>`;
+
+  const istruttore = (el, attr) => istruttori.find((x) => x.id === Number(el.dataset[attr]));
+  const tbody = app.querySelector('tbody');
+  // Si ridisegnano solo le righe, così la casella di ricerca non perde il cursore
+  function disegnaRighe() {
+    const visibili = istruttori.filter((i) => istruttoreVisibile(i, f));
+    document.getElementById('f-conteggio').textContent = visibili.length === istruttori.length ? '' : `${visibili.length} di ${istruttori.length}`;
+    tbody.innerHTML = visibili.map((i) => `
         <tr class="cliccabile ${i.attivo ? '' : 'spento'}" data-id="${i.id}">
           <td class="nominativo"><strong>${esc(i.cognome)}</strong><div>${esc(i.nome)}</div>
             <div class="muted">${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}${i.attivo ? '' : ' · disattivato'}</div>
@@ -575,38 +614,46 @@ async function paginaIstruttori() {
             <button class="piccolo" data-attivo="${i.id}">${i.attivo ? 'Disattiva' : 'Riattiva'}</button>
             <button class="piccolo" data-elimina="${i.id}" ${admin ? '' : 'disabled title="Solo l\'amministratore può eliminare: puoi disattivare"'}>Elimina</button>
           </td>
-        </tr>`).join('') || `<tr><td colspan="5" class="muted">Nessun istruttore</td></tr>`}
-      </tbody>
-    </table></div>`;
+        </tr>`).join('') || `<tr><td colspan="5" class="muted">${istruttori.length ? 'Nessun istruttore con questi filtri' : 'Nessun istruttore'}</td></tr>`;
 
-  const istruttore = (el, attr) => istruttori.find((x) => x.id === Number(el.dataset[attr]));
+    tbody.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = async () => {
+      const i = istruttore(tr, 'id');
+      if (await moduloESalva('Modifica istruttore', campiIstruttore(), i, (d) => api('PUT', `/istruttori/${i.id}`, d))) paginaIstruttori();
+    });
+    tbody.querySelectorAll('[data-attivo]').forEach((b) => b.onclick = async (ev) => {
+      ev.stopPropagation();
+      const i = istruttore(b, 'attivo');
+      await api('PUT', `/istruttori/${i.id}/attivo`, { attivo: !i.attivo });
+      paginaIstruttori();
+    });
+    tbody.querySelectorAll('[data-elimina]').forEach((b) => b.onclick = async (ev) => {
+      ev.stopPropagation();
+      const i = istruttore(b, 'elimina');
+      if (!confirm(`Eliminare definitivamente ${nomeCompleto(i)}? Si perdono anche le sue disponibilità e richieste.`
+        + (i.assegnazioni_totali ? `\n\nHa ${i.assegnazioni_totali} assegnazioni ai corsi (anche passati): verranno tolte dalle squadre.` : '')
+        + '\n\nPer chi non insegna più è meglio "Disattiva": resta nello storico.')) return;
+      try {
+        await api('DELETE', `/istruttori/${i.id}`);
+      } catch (e) {
+        alert(e.message);
+      }
+      paginaIstruttori();
+    });
+  }
+  disegnaRighe();
+
+  document.getElementById('f-testo').oninput = (ev) => { f.testo = ev.target.value; disegnaRighe(); };
+  for (const campo of ['stato', 'profilo', 'qualifica', 'abilitazione']) {
+    document.getElementById(`f-${campo}`).onchange = (ev) => { f[campo] = ev.target.value; disegnaRighe(); };
+  }
+  document.getElementById('f-azzera').onclick = () => {
+    Object.keys(f).forEach((k) => f[k] = '');
+    paginaIstruttori();
+  };
   document.getElementById('link-anagrafica').onclick = mostraLinkAnagrafica;
   document.getElementById('nuovo').onclick = async () => {
     if (await moduloESalva('Nuovo istruttore', campiIstruttore(), { attivo: true, profilo: 'sanitario' }, (d) => api('POST', '/istruttori', d))) paginaIstruttori();
   };
-  app.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = async () => {
-    const i = istruttore(tr, 'id');
-    if (await moduloESalva('Modifica istruttore', campiIstruttore(), i, (d) => api('PUT', `/istruttori/${i.id}`, d))) paginaIstruttori();
-  });
-  app.querySelectorAll('[data-attivo]').forEach((b) => b.onclick = async (ev) => {
-    ev.stopPropagation();
-    const i = istruttore(b, 'attivo');
-    await api('PUT', `/istruttori/${i.id}/attivo`, { attivo: !i.attivo });
-    paginaIstruttori();
-  });
-  app.querySelectorAll('[data-elimina]').forEach((b) => b.onclick = async (ev) => {
-    ev.stopPropagation();
-    const i = istruttore(b, 'elimina');
-    if (!confirm(`Eliminare definitivamente ${nomeCompleto(i)}? Si perdono anche le sue disponibilità e richieste.`
-      + (i.assegnazioni_totali ? `\n\nHa ${i.assegnazioni_totali} assegnazioni ai corsi (anche passati): verranno tolte dalle squadre.` : '')
-      + '\n\nPer chi non insegna più è meglio "Disattiva": resta nello storico.')) return;
-    try {
-      await api('DELETE', `/istruttori/${i.id}`);
-    } catch (e) {
-      alert(e.message);
-    }
-    paginaIstruttori();
-  });
 }
 
 /** Link condiviso da mandare nella chat degli istruttori: ognuno compila la sua scheda. */

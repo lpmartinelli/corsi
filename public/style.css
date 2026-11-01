@@ -149,7 +149,8 @@ input, select, textarea {
 .accesso { max-width: 380px; margin: 40px auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
 .accesso form { display: grid; gap: 12px; }
 .accesso h1 { margin-bottom: 4px; }
-.filtri { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.filtri { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.filtri input[type="search"] { flex: 1 1 220px; min-width: 0; }
 .matrice th { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); vertical-align: top; }
 .matrice th .muted { display: block; font-weight: 400; font-size: 12px; }
 .matrice td { text-align: center; }
