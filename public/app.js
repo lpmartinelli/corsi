@@ -525,7 +525,9 @@ function campiIstruttore() {
   return [
     { nome: 'nome', etichetta: 'Nome', obbligatorio: true },
     { nome: 'cognome', etichetta: 'Cognome', obbligatorio: true },
+    { nome: 'codice_fiscale', etichetta: 'Codice fiscale', extra: 'maxlength="20" spellcheck="false" style="text-transform: uppercase"' },
     { nome: 'telefono', etichetta: 'Telefono (WhatsApp)', tipo: 'tel', extra: 'placeholder="+39 333 1234567"' },
+    { nome: 'email', etichetta: 'Email', tipo: 'email' },
     { nome: 'profilo', etichetta: 'Profilo', tipo: 'select', opzioni: [['sanitario', 'Sanitario'], ['tecnico', 'Tecnico']] },
     { nome: 'direttore', etichetta: 'Qualifica di direttore', tipo: 'checkbox' },
     { nome: 'albo_ausl', etichetta: 'Iscritto all\'albo formatori AUSL', tipo: 'checkbox' },
@@ -548,22 +550,22 @@ async function paginaIstruttori() {
     </div></div>
     ${daVerificare ? `<p class="muted">${daVerificare} ${daVerificare === 1 ? 'scheda compilata' : 'schede compilate'} dagli istruttori
       da verificare: aprila, controlla e salva.</p>` : ''}
-    <div class="tabella"><table>
-      <thead><tr><th>Nome</th><th>Telefono</th><th>Profilo</th><th>Direttore</th><th>Albo AUSL</th><th>IRC</th><th>Abilitazioni</th><th>Giornate 12 mesi</th><th></th></tr></thead>
+    <div class="tabella adatta"><table>
+      <thead><tr><th>Istruttore</th><th>Contatti</th><th>Qualifiche e abilitazioni</th><th>Giornate 12 mesi</th><th></th></tr></thead>
       <tbody>${istruttori.map((i) => `
         <tr class="cliccabile ${i.attivo ? '' : 'spento'}" data-id="${i.id}">
-          <td>${esc(nomeCompleto(i))}${i.da_verificare ? ' <span class="etichetta forse">Da verificare</span>' : ''}</td><td>${esc(i.telefono)}</td>
-          <td>${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}</td>
-          <td>${i.direttore ? '✓' : ''}</td>
-          <td>${i.albo_ausl ? '✓' : ''}</td>
-          <td>${esc(certificazioni(i))}</td>
-          <td>${i.abilitazioni.map((a) => `<span class="etichetta neutro">${esc(a)}</span>`).join(' ')}</td>
-          <td>${i.giornate}</td>
-          <td>
+          <td><strong>${esc(nomeCompleto(i))}</strong>${i.da_verificare ? ' <span class="etichetta forse">Da verificare</span>' : ''}
+            <div class="muted">${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}${i.attivo ? '' : ' · disattivato'}</div></td>
+          <td class="contatti">${esc(i.telefono || '—')}${i.email ? `<div class="muted">${esc(i.email)}</div>` : ''}</td>
+          <td>${[i.direttore && 'Direttore', i.albo_ausl && 'Albo AUSL', i.irc && 'IRC', i.irccom && 'IRCcom'].filter(Boolean)
+            .map((q) => `<span class="etichetta si">${q}</span>`).join(' ')}
+            ${i.abilitazioni.map((a) => `<span class="etichetta neutro">${esc(a)}</span>`).join(' ')}</td>
+          <td data-etichetta="Giornate 12 mesi">${i.giornate}</td>
+          <td class="azioni-riga">
             <button class="piccolo" data-attivo="${i.id}">${i.attivo ? 'Disattiva' : 'Riattiva'}</button>
             <button class="piccolo" data-elimina="${i.id}" ${admin ? '' : 'disabled title="Solo l\'amministratore può eliminare: puoi disattivare"'}>Elimina</button>
           </td>
-        </tr>`).join('') || `<tr><td colspan="9" class="muted">Nessun istruttore</td></tr>`}
+        </tr>`).join('') || `<tr><td colspan="5" class="muted">Nessun istruttore</td></tr>`}
       </tbody>
     </table></div>`;
 
@@ -602,7 +604,7 @@ async function mostraLinkAnagrafica() {
   let { token } = await api('GET', '/istruttori/link');
   const disegna = () => {
     const link = `${location.origin}/a/${token}`;
-    const messaggio = `Ciao a tutti, per organizzare i corsi mi servono i vostri dati da istruttori (cellulare, profilo, abilitazioni). `
+    const messaggio = `Ciao a tutti, per organizzare i corsi mi servono i vostri dati da istruttori (codice fiscale, cellulare, email, abilitazioni). `
       + `Compilate qui, ci vuole un minuto:\n${link}`;
     dialogoForm.innerHTML = `
       <h2>Link per l'anagrafica</h2>

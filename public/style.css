@@ -188,6 +188,23 @@ button:disabled { opacity: .5; cursor: default; }
   #foglio-stampa footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; }
 }
 
+/* Tabella che va a capo invece di scorrere in orizzontale; su schermi stretti ogni riga diventa una scheda */
+.tabella.adatta { overflow-x: visible; }
+.adatta td { white-space: normal; vertical-align: top; }
+.adatta td .etichetta { margin: 1px 0; }
+.adatta .contatti { overflow-wrap: anywhere; }
+.adatta .azioni-riga { white-space: nowrap; text-align: right; }
+
+@media (max-width: 700px) {
+  .adatta thead { display: none; }
+  .adatta tr { display: block; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .adatta tr:last-child { border-bottom: 0; }
+  .adatta td { display: block; border: 0; padding: 3px 14px; }
+  .adatta td:empty { display: none; }
+  .adatta td[data-etichetta]::before { content: attr(data-etichetta) ': '; color: var(--muted); }
+  .adatta .azioni-riga { text-align: left; padding-top: 6px; }
+}
+
 @media (max-width: 560px) {
   .riga { grid-template-columns: 1fr; }
 }

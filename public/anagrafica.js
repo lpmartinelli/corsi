@@ -20,16 +20,18 @@ const campo = (nome, etichetta, tipo, valore, extra = '') =>
 const spunta = (nome, etichetta, valore, attr = '') =>
   `<label class="check"><input type="checkbox" name="${nome}" ${attr} ${valore ? 'checked' : ''}> ${esc(etichetta)}</label>`;
 
-function disegna({ abilitazioni, ente }, dati = { profilo: 'sanitario', abilitazioni: [] }) {
+function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: [] }) {
   app.innerHTML = `
-    ${ente ? `<strong class="muted">${esc(ente)}</strong>` : ''}
     <h1>I tuoi dati di istruttore</h1>
-    <p class="muted">Servono per mandarti le richieste di disponibilità dei corsi su WhatsApp.
+    <p class="muted">Servono per organizzare i corsi e mandarti le richieste di disponibilità su WhatsApp.
       Se sei già in elenco, i tuoi dati vengono aggiornati.</p>
     <form id="anagrafica" class="scheda-anagrafica">
       ${campo('nome', 'Nome', 'text', dati.nome, 'autocomplete="given-name" maxlength="60"')}
       ${campo('cognome', 'Cognome', 'text', dati.cognome, 'autocomplete="family-name" maxlength="60"')}
+      ${campo('codice_fiscale', 'Codice fiscale', 'text', dati.codice_fiscale,
+        'maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" style="text-transform: uppercase"')}
       ${campo('telefono', 'Cellulare (WhatsApp)', 'tel', dati.telefono, 'autocomplete="tel" placeholder="+39 333 1234567" maxlength="30"')}
+      ${campo('email', 'Email', 'email', dati.email, 'autocomplete="email" maxlength="120"')}
       <label>Profilo<span class="checks">
         ${[['sanitario', 'Sanitario'], ['tecnico', 'Tecnico']].map(([v, t]) =>
           `<label class="check"><input type="radio" name="profilo" value="${v}" ${dati.profilo === v ? 'checked' : ''}> ${t}</label>`).join('')}
@@ -46,7 +48,7 @@ function disegna({ abilitazioni, ente }, dati = { profilo: 'sanitario', abilitaz
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const inviati = {
-      nome: form.elements.nome.value, cognome: form.elements.cognome.value, telefono: form.elements.telefono.value,
+      ...Object.fromEntries(['nome', 'cognome', 'codice_fiscale', 'telefono', 'email'].map((n) => [n, form.elements[n].value])),
       profilo: form.elements.profilo.value,
       abilitazioni: [...form.querySelectorAll('[name="abilitazioni"]:checked')].map((x) => x.value),
       ...Object.fromEntries(QUALIFICHE.map(([n]) => [n, form.elements[n].checked])),
@@ -58,7 +60,7 @@ function disegna({ abilitazioni, ente }, dati = { profilo: 'sanitario', abilitaz
       app.innerHTML = `<h1>Grazie ${esc(inviati.nome)}!</h1>
         <p>I tuoi dati sono stati ricevuti. Il coordinatore li verificherà.</p>
         <p><button id="correggi">Correggi i dati</button></p>`;
-      document.getElementById('correggi').onclick = () => disegna({ abilitazioni, ente }, inviati);
+      document.getElementById('correggi').onclick = () => disegna({ abilitazioni }, inviati);
     } catch (e) {
       const errore = document.getElementById('errore');
       errore.textContent = e.message;

@@ -2,6 +2,7 @@ import {
   PASSWORD_MINIMA, apriSessione, chiudiSessione, cookieSessione, creaAttivazione, hashPassword, hashToken,
   pubblico, stringheUguali, utenteCorrente, verificaPassword,
 } from './auth.js';
+import { codiceFiscaleValido, emailValida, normalizzaCodiceFiscale } from './anagrafica.js';
 import { puoRicevere, verificaSquadra } from './regole.js';
 
 const VALIDITA_LINK_MS = 30 * 24 * 60 * 60 * 1000;
@@ -39,18 +40,27 @@ function conAbilitazioni(riga) {
   return { ...riga, abilitazioni: riga.abilitazioni ? riga.abilitazioni.split(',') : [] };
 }
 
+/** Email e codice fiscale facoltativi: se ci sono devono essere validi. Il codice fiscale si salva maiuscolo e senza spazi. */
+function contatti(body) {
+  const email = String(body.email ?? '').trim() || null;
+  const cf = normalizzaCodiceFiscale(body.codice_fiscale) || null;
+  if (email && !emailValida(email)) throw new ErroreRichiesta('Indirizzo email non valido');
+  if (cf && !codiceFiscaleValido(cf)) throw new ErroreRichiesta('Codice fiscale non valido');
+  return [email, cf];
+}
+
 async function salvaIstruttore(env, id, body) {
   richiedi(body, ['nome', 'cognome', 'profilo']);
-  const valori = [body.nome.trim(), body.cognome.trim(), body.telefono?.trim() || null, body.profilo,
+  const valori = [body.nome.trim(), body.cognome.trim(), body.telefono?.trim() || null, ...contatti(body), body.profilo,
     body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0, body.attivo === false ? 0 : 1, body.note || null];
 
   // Salvata da un coordinatore, la scheda è verificata
   if (id) {
-    await env.DB.prepare(`UPDATE istruttori SET nome=?, cognome=?, telefono=?, profilo=?, direttore=?, albo_ausl=?, irc=?, irccom=?,
-      attivo=?, note=?, da_verificare=0 WHERE id=?`).bind(...valori, id).run();
+    await env.DB.prepare(`UPDATE istruttori SET nome=?, cognome=?, telefono=?, email=?, codice_fiscale=?, profilo=?, direttore=?, albo_ausl=?,
+      irc=?, irccom=?, attivo=?, note=?, da_verificare=0 WHERE id=?`).bind(...valori, id).run();
   } else {
-    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, profilo, direttore, albo_ausl, irc, irccom, attivo, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
+    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, direttore, albo_ausl,
+      irc, irccom, attivo, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
   }
   await salvaAbilitazioni(env, id, body.abilitazioni);
   return { id };
@@ -96,37 +106,36 @@ async function controllaLinkAnagrafica(env, token) {
 
 async function paginaAnagrafica(env, token) {
   await controllaLinkAnagrafica(env, token);
-  const [{ results: abilitazioni }, ente] = await env.DB.batch([
-    env.DB.prepare('SELECT codice FROM abilitazioni ORDER BY codice'),
-    env.DB.prepare("SELECT valore FROM impostazioni WHERE chiave = 'nome'"),
-  ]);
-  return { abilitazioni: abilitazioni.map((a) => a.codice), ente: ente.results[0]?.valore || null };
+  const { results } = await env.DB.prepare('SELECT codice FROM abilitazioni ORDER BY codice').all();
+  return { abilitazioni: results.map((a) => a.codice) };
 }
 
 /**
- * Chi è già in elenco (stesso nome e cognome) aggiorna la sua scheda, gli altri vengono aggiunti attivi.
+ * Chi è già in elenco (stesso codice fiscale, oppure stesso nome e cognome) aggiorna la sua scheda, gli altri vengono aggiunti attivi.
  * Il link è condiviso, quindi la scheda resta da verificare; i dati esistenti non vengono mai mostrati.
  */
 async function compilaAnagrafica(env, token, body) {
   await controllaLinkAnagrafica(env, token);
-  richiedi(body, ['nome', 'cognome', 'telefono', 'profilo']);
+  richiedi(body, ['nome', 'cognome', 'telefono', 'email', 'codice_fiscale', 'profilo']);
   const testo = (v, max) => String(v).trim().replace(/\s+/g, ' ').slice(0, max);
   const [nome, cognome, telefono] = [testo(body.nome, 60), testo(body.cognome, 60), testo(body.telefono, 30)];
   if (!nome || !cognome) throw new ErroreRichiesta('Nome e cognome sono obbligatori');
   if (!/^\+?[\d\s./-]{6,}$/.test(telefono)) throw new ErroreRichiesta('Numero di telefono non valido');
+  const [email, cf] = contatti({ email: testo(body.email, 120), codice_fiscale: body.codice_fiscale });
   if (!['sanitario', 'tecnico'].includes(body.profilo)) throw new ErroreRichiesta('Profilo non valido');
   const codici = (await env.DB.prepare('SELECT codice FROM abilitazioni').all()).results.map((a) => a.codice);
-  const valori = [nome, cognome, telefono, body.profilo, body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0];
+  const valori = [nome, cognome, telefono, email, cf, body.profilo, body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0];
 
-  let { id } = await env.DB.prepare('SELECT id FROM istruttori WHERE nome = ? COLLATE NOCASE AND cognome = ? COLLATE NOCASE ORDER BY id LIMIT 1')
-    .bind(nome, cognome).first() || {};
+  let { id } = await env.DB.prepare(`SELECT id FROM istruttori
+    WHERE codice_fiscale = ?1 OR (nome = ?2 COLLATE NOCASE AND cognome = ?3 COLLATE NOCASE)
+    ORDER BY codice_fiscale IS ?1 DESC, id LIMIT 1`).bind(cf, nome, cognome).first() || {};
   // Nome e cognome restano scritti come in elenco (l'istruttore potrebbe averli digitati tutti minuscoli)
   if (id) {
-    await env.DB.prepare(`UPDATE istruttori SET telefono=?, profilo=?, direttore=?, albo_ausl=?, irc=?, irccom=?,
+    await env.DB.prepare(`UPDATE istruttori SET telefono=?, email=?, codice_fiscale=?, profilo=?, direttore=?, albo_ausl=?, irc=?, irccom=?,
       da_verificare=1 WHERE id=?`).bind(...valori.slice(2), id).run();
   } else {
-    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, profilo, direttore, albo_ausl, irc, irccom, da_verificare)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
+    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, direttore, albo_ausl,
+      irc, irccom, da_verificare) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
   }
   await salvaAbilitazioni(env, id, (body.abilitazioni || []).filter((a) => codici.includes(a)));
   return { ok: true };

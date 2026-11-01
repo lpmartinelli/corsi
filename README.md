@@ -41,8 +41,9 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 ## Anagrafica degli istruttori (link condiviso)
 
 In **Istruttori** → **Link per l'anagrafica** si crea un link `/a/<token>` da mandare nella chat degli istruttori
-(c'è anche il messaggio già pronto da copiare). Ognuno inserisce cellulare, profilo, abilitazioni, direttore, albo AUSL, IRC / IRCcom.
-Chi è già in elenco (stesso nome e cognome, maiuscole a parte) aggiorna la sua scheda, gli altri vengono aggiunti attivi.
+(c'è anche il messaggio già pronto da copiare). Ognuno inserisce codice fiscale, cellulare, email, profilo, abilitazioni,
+direttore, albo AUSL, IRC / IRCcom. Il codice fiscale si controlla col carattere finale (`src/anagrafica.js`).
+Chi è già in elenco (stesso codice fiscale, oppure stesso nome e cognome, maiuscole a parte) aggiorna la sua scheda, gli altri vengono aggiunti attivi.
 La pagina non mostra mai i dati già salvati. Le schede compilate così restano **Da verificare** finché un coordinatore non le apre e salva.
 Il link vale finché non si disattiva o se ne genera uno nuovo (il token sta in `impostazioni`, chiave `link_anagrafica`).
 
