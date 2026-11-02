@@ -23,3 +23,7 @@ ALTER TABLE istruttori_abilitazioni_nuova RENAME TO istruttori_abilitazioni;
 -- IRC e IRCcom tornano un sì/no: istruttore o direttore si indica per disciplina
 UPDATE istruttori SET irc = 1 WHERE irc > 1;
 UPDATE istruttori SET irccom = 1 WHERE irccom > 1;
+
+-- Le abilitazioni si vedono solo sotto le certificazioni spuntate: chi non ne aveva nessuna diventa IRC
+UPDATE istruttori SET irc = 1
+  WHERE irc = 0 AND id IN (SELECT istruttore_id FROM istruttori_abilitazioni WHERE certificazione = 'irc');

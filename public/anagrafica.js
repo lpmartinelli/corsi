@@ -21,10 +21,10 @@ const spunta = (nome, etichetta, valore, attr = '') =>
   `<label class="check"><input type="checkbox" name="${nome}" ${attr} ${valore ? 'checked' : ''}> ${esc(etichetta)}</label>`;
 // Per ogni abilitazione e certificazione: niente (0), istruttore (1) o direttore (2); livelli è { irc: { BLSD: 2 }, irccom: {...} }
 const tabellaLivelli = (abilitazioni, livelli) => `<table class="livelli">
-  <thead><tr><th rowspan="2"></th>${CERTIFICAZIONI.map(([, t]) => `<th colspan="2" class="gruppo">${t}</th>`).join('')}</tr>
-    <tr>${CERTIFICAZIONI.map(() => `<th class="gruppo">${LIVELLI[1]}</th><th>${LIVELLI[2]}</th>`).join('')}</tr></thead>
+  <thead><tr><th rowspan="2"></th>${CERTIFICAZIONI.map(([k, t]) => `<th colspan="2" class="gruppo" data-cert="${k}">${t}</th>`).join('')}</tr>
+    <tr>${CERTIFICAZIONI.map(([k]) => `<th class="gruppo" data-cert="${k}">${LIVELLI[1]}</th><th data-cert="${k}">${LIVELLI[2]}</th>`).join('')}</tr></thead>
   <tbody>${abilitazioni.map((a) => `<tr><th>${esc(a)}</th>${CERTIFICAZIONI.map(([k, t]) => [1, 2].map((n) => `
-    <td class="${n === 1 ? 'gruppo' : ''}"><input type="checkbox" name="${k}:${esc(a)}:${n}" aria-label="${esc(a)} ${t} ${LIVELLI[n].toLowerCase()}"
+    <td class="${n === 1 ? 'gruppo' : ''}" data-cert="${k}"><input type="checkbox" name="${k}:${esc(a)}:${n}" aria-label="${esc(a)} ${t} ${LIVELLI[n].toLowerCase()}"
       ${(livelli[k]?.[a] || 0) >= n ? 'checked' : ''}></td>`).join('')).join('')}</tr>`).join('')}</tbody></table>`;
 
 // Chi dirige una disciplina la insegna anche: Direttore spunta Istruttore, togliere Istruttore toglie Direttore
@@ -34,6 +34,17 @@ function collegaLivelli(radice) {
     if (x === direttore && direttore.checked) istruttore.checked = true;
     if (x === istruttore && !istruttore.checked) direttore.checked = false;
   });
+}
+
+// Nella tabella si vedono solo le certificazioni spuntate; senza certificazioni la tabella non c'è
+function collegaCertificazioni(form) {
+  const tabella = form.querySelector('.livelli');
+  const aggiorna = () => {
+    for (const [k] of CERTIFICAZIONI) tabella.querySelectorAll(`[data-cert="${k}"]`).forEach((el) => el.hidden = !form.elements[k].checked);
+    tabella.closest('.campo').hidden = !CERTIFICAZIONI.some(([k]) => form.elements[k].checked);
+  };
+  CERTIFICAZIONI.forEach(([k]) => form.elements[k].addEventListener('change', aggiorna));
+  aggiorna();
 }
 
 function disegna({ abilitazioni }, dati = { profilo: 'sanitario', livelli: {} }) {
@@ -63,6 +74,7 @@ function disegna({ abilitazioni }, dati = { profilo: 'sanitario', livelli: {} })
 
   const form = document.getElementById('anagrafica');
   collegaLivelli(form);
+  collegaCertificazioni(form);
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const livello = (nome) => (form.elements[`${nome}:2`].checked ? 2 : form.elements[`${nome}:1`].checked ? 1 : 0);

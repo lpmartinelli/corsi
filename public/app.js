@@ -41,6 +41,9 @@ function modulo(titolo, campi, valori = {}) {
     `<p class="errore" id="errore-modulo" hidden></p>
      <div class="azioni"><button value="annulla" formnovalidate>Annulla</button><button value="ok" class="primario">Salva</button></div>`;
   collegaLivelli(dialogoForm);
+  if (campi.some((c) => c.nome === 'certificazioni')) {
+    collegaCertificazioni(dialogoForm, (k) => dialogoForm.querySelector(`[name="certificazioni"][value="${k}"]`));
+  }
   dialogo.returnValue = '';
   dialogo.showModal();
   return new Promise((resolve) => {
@@ -73,10 +76,10 @@ function campoHtml(c, valore) {
   // Un livello per voce e certificazione (0 = no, 1 = istruttore, 2 = direttore); il valore è { irc: { voce: livello }, irccom: {...} }
   if (c.tipo === 'livelli') {
     return `<div class="campo">${esc(c.etichetta)}<table class="livelli">
-      <thead><tr><th rowspan="2"></th>${CERTIFICAZIONI.map(([, t]) => `<th colspan="2" class="gruppo">${t}</th>`).join('')}</tr>
-        <tr>${CERTIFICAZIONI.map(() => `<th class="gruppo">${LIVELLI[1]}</th><th>${LIVELLI[2]}</th>`).join('')}</tr></thead>
+      <thead><tr><th rowspan="2"></th>${CERTIFICAZIONI.map(([k, t]) => `<th colspan="2" class="gruppo" data-cert="${k}">${t}</th>`).join('')}</tr>
+        <tr>${CERTIFICAZIONI.map(([k]) => `<th class="gruppo" data-cert="${k}">${LIVELLI[1]}</th><th data-cert="${k}">${LIVELLI[2]}</th>`).join('')}</tr></thead>
       <tbody>${c.opzioni.map(([v, t]) => `<tr><th>${esc(t)}</th>${CERTIFICAZIONI.map(([k, tk]) => [1, 2].map((n) => `
-        <td class="${n === 1 ? 'gruppo' : ''}"><input type="checkbox" name="${c.nome}:${k}:${esc(v)}:${n}"
+        <td class="${n === 1 ? 'gruppo' : ''}" data-cert="${k}"><input type="checkbox" name="${c.nome}:${k}:${esc(v)}:${n}"
           aria-label="${esc(t)} ${tk} ${LIVELLI[n].toLowerCase()}" ${(valore?.[k]?.[v] || 0) >= n ? 'checked' : ''}></td>`).join('')).join('')}</tr>`).join('')}
       </tbody></table></div>`;
   }
@@ -99,6 +102,18 @@ function collegaLivelli(radice) {
     if (x === direttore && direttore.checked) istruttore.checked = true;
     if (x === istruttore && !istruttore.checked) direttore.checked = false;
   });
+}
+
+// Nella tabella delle abilitazioni si vedono solo le certificazioni spuntate; senza certificazioni la tabella non c'è
+function collegaCertificazioni(radice, casella) {
+  const tabella = radice.querySelector('.livelli');
+  if (!tabella) return;
+  const aggiorna = () => {
+    for (const [k] of CERTIFICAZIONI) tabella.querySelectorAll(`[data-cert="${k}"]`).forEach((el) => el.hidden = !casella(k).checked);
+    tabella.closest('.campo').hidden = !CERTIFICAZIONI.some(([k]) => casella(k).checked);
+  };
+  CERTIFICAZIONI.forEach(([k]) => casella(k).addEventListener('change', aggiorna));
+  aggiorna();
 }
 
 /** Ripete il modulo finché il salvataggio non riesce o l'utente annulla. */

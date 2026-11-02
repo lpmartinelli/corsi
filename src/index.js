@@ -77,13 +77,16 @@ async function salvaIstruttore(env, id, body) {
     ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, albo_ausl,
       irc, irccom, attivo, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
   }
-  await salvaAbilitazioni(env, id, body.livelli);
+  await salvaAbilitazioni(env, id, body);
   return { id };
 }
 
-/** livelli come in conAbilitazioni; con codici si tengono solo le abilitazioni in elenco. */
-async function salvaAbilitazioni(env, id, livelli, codici) {
-  const voci = CERTIFICAZIONI.flatMap((c) => Object.entries(livelli?.[c] || {})
+/**
+ * body.livelli come in conAbilitazioni, solo per le certificazioni spuntate (body.irc, body.irccom).
+ * Con codici si tengono solo le abilitazioni in elenco.
+ */
+async function salvaAbilitazioni(env, id, body, codici) {
+  const voci = CERTIFICAZIONI.filter((c) => body[c]).flatMap((c) => Object.entries(body.livelli?.[c] || {})
     .filter(([a, n]) => livello(n) && (!codici || codici.includes(a)))
     .map(([a, n]) => [a, c, livello(n) === 2 ? 1 : 0]));
   await env.DB.batch([
@@ -157,7 +160,7 @@ async function compilaAnagrafica(env, token, body) {
     ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, albo_ausl,
       irc, irccom, da_verificare) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
   }
-  await salvaAbilitazioni(env, id, body.livelli, codici);
+  await salvaAbilitazioni(env, id, body, codici);
   return { ok: true };
 }
 
