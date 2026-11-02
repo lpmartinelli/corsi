@@ -147,6 +147,9 @@ input, select, textarea {
 }
 .riga { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .checks { display: flex; flex-wrap: wrap; gap: 14px; }
+.campo { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.livelli { display: grid; grid-template-columns: max-content minmax(0, 12em); gap: 6px 12px; align-items: center; }
+.livelli span { color: var(--text); font-size: 15px; }
 .azioni { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .errore { color: var(--no); }
 

@@ -12,7 +12,7 @@ export function puoRicevere(istruttore, corso) {
 
 /**
  * @param corso   { tipo, categoria, istruttori_richiesti }
- * @param squadra [{ istruttore: { id, nome, cognome, profilo, direttore, attivo, albo_ausl, abilitazioni[] },
+ * @param squadra [{ istruttore: { id, nome, cognome, profilo, attivo, albo_ausl, abilitazioni[], direzioni[] },
  *                   ruolo, disponibilita: 'si'|'no'|'forse'|null, altriCorsiStessoGiorno }]
  * @returns [{ codice, messaggio, istruttore_id? }]
  */
@@ -51,7 +51,7 @@ export function verificaSquadra(corso, squadra) {
     if (!i.attivo) avviso('INATTIVO', 'istruttore non attivo');
     if (!i.abilitazioni.includes(corso.tipo)) avviso('NON_ABILITATO', `non abilitato ${corso.tipo}`);
     if (corso.categoria === 'ausl' && !i.albo_ausl) avviso('NON_ALBO', 'non iscritto all\'albo formatori AUSL');
-    if (m.ruolo === 'direttore' && !i.direttore) avviso('NON_DIRETTORE', 'non ha la qualifica di direttore');
+    if (m.ruolo === 'direttore' && !i.direzioni.includes(corso.tipo)) avviso('NON_DIRETTORE', `non è direttore ${corso.tipo}`);
     if (m.disponibilita == null) avviso('SENZA_RISPOSTA', 'non ha dato disponibilità');
     else if (RISPOSTE[m.disponibilita]) avviso('NON_DISPONIBILE', RISPOSTE[m.disponibilita]);
     if (m.altriCorsiStessoGiorno > 0) avviso('DOPPIO_IMPEGNO', 'già assegnato a un altro corso lo stesso giorno');

@@ -4,9 +4,9 @@ import { puoRicevere, verificaSquadra } from '../src/regole.js';
 
 const corso = { tipo: 'BLSD', istruttori_richiesti: 2 };
 
-function membro(id, profilo, { ruolo = 'istruttore', direttore = false, abilitazioni = ['BLSD'], disponibilita = 'si', altri = 0, attivo = true } = {}) {
+function membro(id, profilo, { ruolo = 'istruttore', direzioni = [], abilitazioni = ['BLSD'], disponibilita = 'si', altri = 0, attivo = true } = {}) {
   return {
-    istruttore: { id, nome: 'N' + id, cognome: 'C' + id, profilo, direttore, attivo, abilitazioni },
+    istruttore: { id, nome: 'N' + id, cognome: 'C' + id, profilo, attivo, abilitazioni, direzioni },
     ruolo,
     disponibilita,
     altriCorsiStessoGiorno: altri,
@@ -17,7 +17,7 @@ const codici = (avvisi) => avvisi.map((a) => a.codice).sort();
 
 test('squadra regolare: nessun avviso', () => {
   const squadra = [
-    membro(1, 'sanitario', { ruolo: 'direttore', direttore: true }),
+    membro(1, 'sanitario', { ruolo: 'direttore', direzioni: ['BLSD'] }),
     membro(2, 'tecnico'),
   ];
   assert.deepEqual(verificaSquadra(corso, squadra), []);
@@ -25,7 +25,7 @@ test('squadra regolare: nessun avviso', () => {
 
 test('solo sanitari: nessun limite', () => {
   const squadra = [
-    membro(1, 'sanitario', { ruolo: 'direttore', direttore: true }),
+    membro(1, 'sanitario', { ruolo: 'direttore', direzioni: ['BLSD'] }),
     membro(2, 'sanitario'),
     membro(3, 'sanitario'),
   ];
@@ -34,7 +34,7 @@ test('solo sanitari: nessun limite', () => {
 
 test('più tecnici che sanitari', () => {
   const squadra = [
-    membro(1, 'sanitario', { ruolo: 'direttore', direttore: true }),
+    membro(1, 'sanitario', { ruolo: 'direttore', direzioni: ['BLSD'] }),
     membro(2, 'tecnico'),
     membro(3, 'tecnico'),
   ];
@@ -47,7 +47,7 @@ test('squadra vuota', () => {
 
 test('avvisi sul singolo istruttore', () => {
   const squadra = [
-    membro(1, 'sanitario', { ruolo: 'direttore', direttore: false, abilitazioni: ['PTC'], disponibilita: null }),
+    membro(1, 'sanitario', { ruolo: 'direttore', abilitazioni: ['PTC'], disponibilita: null }),
     membro(2, 'sanitario', { disponibilita: 'no', altri: 1, attivo: false }),
   ];
   assert.deepEqual(codici(verificaSquadra(corso, squadra)), [
@@ -58,7 +58,7 @@ test('avvisi sul singolo istruttore', () => {
 test('corso AUSL: serve l\'albo formatori', () => {
   const corsoAusl = { ...corso, categoria: 'ausl' };
   const squadra = [
-    membro(1, 'sanitario', { ruolo: 'direttore', direttore: true }),
+    membro(1, 'sanitario', { ruolo: 'direttore', direzioni: ['BLSD'] }),
     membro(2, 'sanitario'),
   ];
   squadra[1].istruttore.albo_ausl = 1;
@@ -76,8 +76,20 @@ test('chi riceve la richiesta', () => {
 
 test('un direttore può fare da istruttore senza avvisi', () => {
   const squadra = [
-    membro(1, 'sanitario', { ruolo: 'direttore', direttore: true }),
-    membro(2, 'sanitario', { direttore: true }),
+    membro(1, 'sanitario', { ruolo: 'direttore', direzioni: ['BLSD'] }),
+    membro(2, 'sanitario', { direzioni: ['BLSD'] }),
   ];
   assert.deepEqual(verificaSquadra(corso, squadra), []);
+});
+
+test('si è direttori di una disciplina, non di tutte', () => {
+  const direttorePblsd = { abilitazioni: ['BLSD', 'PBLSD'], direzioni: ['PBLSD'] };
+  assert.deepEqual(codici(verificaSquadra(corso, [
+    membro(1, 'sanitario', { ruolo: 'direttore', ...direttorePblsd }),
+    membro(2, 'sanitario'),
+  ])), ['NON_DIRETTORE']);
+  assert.deepEqual(verificaSquadra({ ...corso, tipo: 'PBLSD' }, [
+    membro(1, 'sanitario', { ruolo: 'direttore', ...direttorePblsd }),
+    membro(2, 'sanitario', { abilitazioni: ['PBLSD'] }),
+  ]), []);
 });

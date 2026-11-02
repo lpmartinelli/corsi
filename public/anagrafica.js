@@ -1,8 +1,8 @@
 const app = document.getElementById('app');
 const token = location.pathname.split('/')[2];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const QUALIFICHE = [['direttore', 'Ho la qualifica di direttore di corso'], ['albo_ausl', 'Sono iscritto/a all\'albo formatori AUSL'],
-  ['irc', 'Sono istruttore IRC'], ['irccom', 'Sono istruttore IRCcom']];
+const CERTIFICAZIONI = [['irc', 'IRC'], ['irccom', 'IRCcom']];
+const LIVELLI = ['—', 'Istruttore', 'Direttore'];
 
 async function api(metodo, body) {
   const res = await fetch(`/api/anagrafica/${token}`, {
@@ -19,8 +19,13 @@ const campo = (nome, etichetta, tipo, valore, extra = '') =>
   `<label>${etichetta}<input type="${tipo}" name="${nome}" value="${esc(valore)}" required ${extra}></label>`;
 const spunta = (nome, etichetta, valore, attr = '') =>
   `<label class="check"><input type="checkbox" name="${nome}" ${attr} ${valore ? 'checked' : ''}> ${esc(etichetta)}</label>`;
+// Per ogni voce [nome del campo, etichetta, livello]: niente (0), istruttore (1) o direttore (2)
+const livelli = (voci) => `<div class="livelli">${voci.map(([nome, etichetta, livello]) => `
+  <span>${esc(etichetta)}</span><select name="${esc(nome)}" aria-label="${esc(etichetta)}">${LIVELLI.map((t, n) =>
+    `<option value="${n}" ${n === (livello || 0) ? 'selected' : ''}>${t}</option>`).join('')}</select>`).join('')}</div>`;
 
-function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: [] }) {
+function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: [], direzioni: [] }) {
+  const livelloCorso = (a) => (dati.direzioni.includes(a) ? 2 : dati.abilitazioni.includes(a) ? 1 : 0);
   app.innerHTML = `
     <h1>I tuoi dati di istruttore</h1>
     <p class="muted">Servono per organizzare i corsi e mandarti le richieste di disponibilità su WhatsApp.
@@ -36,10 +41,9 @@ function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: 
         ${[['sanitario', 'Sanitario'], ['tecnico', 'Tecnico']].map(([v, t]) =>
           `<label class="check"><input type="radio" name="profilo" value="${v}" ${dati.profilo === v ? 'checked' : ''}> ${t}</label>`).join('')}
       </span></label>
-      <label>Corsi per cui sei abilitato/a<span class="checks">
-        ${abilitazioni.map((a) => spunta('abilitazioni', a, dati.abilitazioni.includes(a), `value="${esc(a)}"`)).join('')}
-      </span></label>
-      ${QUALIFICHE.map(([n, t]) => spunta(n, t, dati[n])).join('')}
+      <div class="campo">Corsi per cui sei istruttore o direttore${livelli(abilitazioni.map((a) => [`corso:${a}`, a, livelloCorso(a)]))}</div>
+      <div class="campo">Certificazioni${livelli(CERTIFICAZIONI.map(([n, t]) => [n, t, dati[n]]))}</div>
+      ${spunta('albo_ausl', 'Sono iscritto/a all\'albo formatori AUSL', dati.albo_ausl)}
       <p class="errore" id="errore" hidden></p>
       <button class="primario">Invia</button>
     </form>`;
@@ -47,11 +51,14 @@ function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: 
   const form = document.getElementById('anagrafica');
   form.onsubmit = async (ev) => {
     ev.preventDefault();
+    const livello = (nome) => Number(form.elements[nome].value);
     const inviati = {
       ...Object.fromEntries(['nome', 'cognome', 'codice_fiscale', 'telefono', 'email'].map((n) => [n, form.elements[n].value])),
       profilo: form.elements.profilo.value,
-      abilitazioni: [...form.querySelectorAll('[name="abilitazioni"]:checked')].map((x) => x.value),
-      ...Object.fromEntries(QUALIFICHE.map(([n]) => [n, form.elements[n].checked])),
+      abilitazioni: abilitazioni.filter((a) => livello(`corso:${a}`) >= 1),
+      direzioni: abilitazioni.filter((a) => livello(`corso:${a}`) === 2),
+      ...Object.fromEntries(CERTIFICAZIONI.map(([n]) => [n, livello(n)])),
+      albo_ausl: form.elements.albo_ausl.checked,
     };
     const bottone = form.querySelector('button');
     bottone.disabled = true;

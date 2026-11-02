@@ -27,7 +27,7 @@ function richiedi(body, campi) {
 
 async function listaIstruttori(env) {
   const { results } = await env.DB.prepare(`
-    SELECT i.*, group_concat(ia.abilitazione) AS abilitazioni,
+    SELECT i.*, ${COLONNE_ABILITAZIONI},
       (SELECT count(*) FROM assegnazioni a JOIN corsi c ON c.id = a.corso_id
         WHERE a.istruttore_id = i.id AND c.stato != 'annullato' AND c.data >= date('now', '-12 months')) AS giornate,
       (SELECT count(*) FROM assegnazioni a WHERE a.istruttore_id = i.id) AS assegnazioni_totali
@@ -36,9 +36,17 @@ async function listaIstruttori(env) {
   return results.map(conAbilitazioni);
 }
 
+// direzioni: le abilitazioni di cui l'istruttore è anche direttore
+const COLONNE_ABILITAZIONI = `group_concat(ia.abilitazione) AS abilitazioni,
+  group_concat(CASE WHEN ia.direttore THEN ia.abilitazione END) AS direzioni`;
+
 function conAbilitazioni(riga) {
-  return { ...riga, abilitazioni: riga.abilitazioni ? riga.abilitazioni.split(',') : [] };
+  const elenco = (v) => (v ? v.split(',') : []);
+  return { ...riga, abilitazioni: elenco(riga.abilitazioni), direzioni: elenco(riga.direzioni) };
 }
+
+/** IRC e IRCcom: 0 = no, 1 = istruttore, 2 = direttore. */
+const livello = (v) => ([1, 2].includes(Number(v)) ? Number(v) : 0);
 
 /** Email e codice fiscale facoltativi: se ci sono devono essere validi. Il codice fiscale si salva maiuscolo e senza spazi. */
 function contatti(body) {
@@ -52,25 +60,27 @@ function contatti(body) {
 async function salvaIstruttore(env, id, body) {
   richiedi(body, ['nome', 'cognome', 'profilo']);
   const valori = [body.nome.trim(), body.cognome.trim(), body.telefono?.trim() || null, ...contatti(body), body.profilo,
-    body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0, body.attivo === false ? 0 : 1, body.note || null];
+    body.albo_ausl ? 1 : 0, livello(body.irc), livello(body.irccom), body.attivo === false ? 0 : 1, body.note || null];
 
   // Salvata da un coordinatore, la scheda è verificata
   if (id) {
-    await env.DB.prepare(`UPDATE istruttori SET nome=?, cognome=?, telefono=?, email=?, codice_fiscale=?, profilo=?, direttore=?, albo_ausl=?,
+    await env.DB.prepare(`UPDATE istruttori SET nome=?, cognome=?, telefono=?, email=?, codice_fiscale=?, profilo=?, albo_ausl=?,
       irc=?, irccom=?, attivo=?, note=?, da_verificare=0 WHERE id=?`).bind(...valori, id).run();
   } else {
-    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, direttore, albo_ausl,
-      irc, irccom, attivo, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
+    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, albo_ausl,
+      irc, irccom, attivo, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
   }
-  await salvaAbilitazioni(env, id, body.abilitazioni);
+  await salvaAbilitazioni(env, id, body.abilitazioni, body.direzioni);
   return { id };
 }
 
-async function salvaAbilitazioni(env, id, abilitazioni) {
+/** direzioni: le abilitazioni di cui è anche direttore (le altre vengono ignorate). */
+async function salvaAbilitazioni(env, id, abilitazioni, direzioni) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM istruttori_abilitazioni WHERE istruttore_id = ?').bind(id),
     ...(abilitazioni || []).map((a) =>
-      env.DB.prepare('INSERT INTO istruttori_abilitazioni (istruttore_id, abilitazione) VALUES (?, ?)').bind(id, a)),
+      env.DB.prepare('INSERT INTO istruttori_abilitazioni (istruttore_id, abilitazione, direttore) VALUES (?, ?, ?)')
+        .bind(id, a, (direzioni || []).includes(a) ? 1 : 0)),
   ]);
 }
 
@@ -124,20 +134,20 @@ async function compilaAnagrafica(env, token, body) {
   const [email, cf] = contatti({ email: testo(body.email, 120), codice_fiscale: body.codice_fiscale });
   if (!['sanitario', 'tecnico'].includes(body.profilo)) throw new ErroreRichiesta('Profilo non valido');
   const codici = (await env.DB.prepare('SELECT codice FROM abilitazioni').all()).results.map((a) => a.codice);
-  const valori = [nome, cognome, telefono, email, cf, body.profilo, body.direttore ? 1 : 0, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0];
+  const valori = [nome, cognome, telefono, email, cf, body.profilo, body.albo_ausl ? 1 : 0, livello(body.irc), livello(body.irccom)];
 
   let { id } = await env.DB.prepare(`SELECT id FROM istruttori
     WHERE codice_fiscale = ?1 OR (nome = ?2 COLLATE NOCASE AND cognome = ?3 COLLATE NOCASE)
     ORDER BY codice_fiscale IS ?1 DESC, id LIMIT 1`).bind(cf, nome, cognome).first() || {};
   // Nome e cognome restano scritti come in elenco (l'istruttore potrebbe averli digitati tutti minuscoli)
   if (id) {
-    await env.DB.prepare(`UPDATE istruttori SET telefono=?, email=?, codice_fiscale=?, profilo=?, direttore=?, albo_ausl=?, irc=?, irccom=?,
+    await env.DB.prepare(`UPDATE istruttori SET telefono=?, email=?, codice_fiscale=?, profilo=?, albo_ausl=?, irc=?, irccom=?,
       da_verificare=1 WHERE id=?`).bind(...valori.slice(2), id).run();
   } else {
-    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, direttore, albo_ausl,
-      irc, irccom, da_verificare) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
+    ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, albo_ausl,
+      irc, irccom, da_verificare) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
   }
-  await salvaAbilitazioni(env, id, (body.abilitazioni || []).filter((a) => codici.includes(a)));
+  await salvaAbilitazioni(env, id, (body.abilitazioni || []).filter((a) => codici.includes(a)), body.direzioni);
   return { ok: true };
 }
 
@@ -244,7 +254,7 @@ async function importaCorsi(env, utente, body) {
  */
 async function candidati(env, corso) {
   const { results } = await env.DB.prepare(`
-    SELECT i.*, group_concat(ia.abilitazione) AS abilitazioni,
+    SELECT i.*, ${COLONNE_ABILITAZIONI},
       d.risposta AS disponibilita, a.ruolo,
       (SELECT count(*) FROM assegnazioni a2 JOIN corsi c2 ON c2.id = a2.corso_id
         WHERE a2.istruttore_id = i.id AND c2.id != ?1 AND c2.stato != 'annullato'
