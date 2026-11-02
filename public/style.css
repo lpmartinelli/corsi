@@ -148,8 +148,11 @@ input, select, textarea {
 .riga { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .checks { display: flex; flex-wrap: wrap; gap: 14px; }
 .campo { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
-.livelli { display: grid; grid-template-columns: max-content minmax(0, 12em); gap: 6px 12px; align-items: center; }
-.livelli span { color: var(--text); font-size: 15px; }
+.livelli { width: auto; }
+.livelli th, .livelli td { padding: 6px 14px; text-align: center; }
+.livelli th:first-child { padding-left: 0; text-align: left; }
+.livelli tbody th { text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 400; color: var(--text); }
+.livelli input { width: 18px; height: 18px; margin: 0; }
 .azioni { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .errore { color: var(--no); }
 

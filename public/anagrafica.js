@@ -20,9 +20,20 @@ const campo = (nome, etichetta, tipo, valore, extra = '') =>
 const spunta = (nome, etichetta, valore, attr = '') =>
   `<label class="check"><input type="checkbox" name="${nome}" ${attr} ${valore ? 'checked' : ''}> ${esc(etichetta)}</label>`;
 // Per ogni voce [nome del campo, etichetta, livello]: niente (0), istruttore (1) o direttore (2)
-const livelli = (voci) => `<div class="livelli">${voci.map(([nome, etichetta, livello]) => `
-  <span>${esc(etichetta)}</span><select name="${esc(nome)}" aria-label="${esc(etichetta)}">${LIVELLI.map((t, n) =>
-    `<option value="${n}" ${n === (livello || 0) ? 'selected' : ''}>${t}</option>`).join('')}</select>`).join('')}</div>`;
+const livelli = (voci) => `<table class="livelli">
+  <thead><tr><th></th><th>${LIVELLI[1]}</th><th>${LIVELLI[2]}</th></tr></thead>
+  <tbody>${voci.map(([nome, etichetta, livello]) => `<tr><th>${esc(etichetta)}</th>${[1, 2].map((n) => `
+    <td><input type="checkbox" name="${esc(nome)}:${n}" aria-label="${esc(etichetta)} ${LIVELLI[n].toLowerCase()}"
+      ${(livello || 0) >= n ? 'checked' : ''}></td>`).join('')}</tr>`).join('')}</tbody></table>`;
+
+// Chi dirige una disciplina la insegna anche: Direttore spunta Istruttore, togliere Istruttore toglie Direttore
+function collegaLivelli(radice) {
+  radice.querySelectorAll('.livelli input').forEach((x) => x.onchange = () => {
+    const [istruttore, direttore] = x.closest('tr').querySelectorAll('input');
+    if (x === direttore && direttore.checked) istruttore.checked = true;
+    if (x === istruttore && !istruttore.checked) direttore.checked = false;
+  });
+}
 
 function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: [], direzioni: [] }) {
   const livelloCorso = (a) => (dati.direzioni.includes(a) ? 2 : dati.abilitazioni.includes(a) ? 1 : 0);
@@ -49,9 +60,10 @@ function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: 
     </form>`;
 
   const form = document.getElementById('anagrafica');
+  collegaLivelli(form);
   form.onsubmit = async (ev) => {
     ev.preventDefault();
-    const livello = (nome) => Number(form.elements[nome].value);
+    const livello = (nome) => (form.elements[`${nome}:2`].checked ? 2 : form.elements[`${nome}:1`].checked ? 1 : 0);
     const inviati = {
       ...Object.fromEntries(['nome', 'cognome', 'codice_fiscale', 'telefono', 'email'].map((n) => [n, form.elements[n].value])),
       profilo: form.elements.profilo.value,

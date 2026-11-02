@@ -40,6 +40,7 @@ function modulo(titolo, campi, valori = {}) {
   dialogoForm.innerHTML = `<h2>${esc(titolo)}</h2>` + campi.map((c) => campoHtml(c, valori[c.nome])).join('') +
     `<p class="errore" id="errore-modulo" hidden></p>
      <div class="azioni"><button value="annulla" formnovalidate>Annulla</button><button value="ok" class="primario">Salva</button></div>`;
+  collegaLivelli(dialogoForm);
   dialogo.returnValue = '';
   dialogo.showModal();
   return new Promise((resolve) => {
@@ -49,7 +50,7 @@ function modulo(titolo, campi, valori = {}) {
       for (const c of campi) {
         if (c.tipo === 'checkbox') dati[c.nome] = dialogoForm.elements[c.nome].checked;
         else if (c.tipo === 'checks') dati[c.nome] = [...dialogoForm.querySelectorAll(`[name="${c.nome}"]:checked`)].map((e) => e.value);
-        else if (c.tipo === 'livelli') dati[c.nome] = Object.fromEntries(c.opzioni.map(([v]) => [v, Number(dialogoForm.elements[`${c.nome}:${v}`].value)]));
+        else if (c.tipo === 'livelli') dati[c.nome] = Object.fromEntries(c.opzioni.map(([v]) => [v, livelloSpuntato(dialogoForm, `${c.nome}:${v}`)]));
         else dati[c.nome] = dialogoForm.elements[c.nome].value;
       }
       resolve(dati);
@@ -68,9 +69,11 @@ function campoHtml(c, valore) {
   }
   // Un livello per voce (0 = no, 1 = istruttore, 2 = direttore); il valore è { voce: livello }
   if (c.tipo === 'livelli') {
-    return `<div class="campo">${esc(c.etichetta)}<div class="livelli">${c.opzioni.map(([v, t]) => `
-      <span>${esc(t)}</span><select name="${c.nome}:${esc(v)}" aria-label="${esc(t)}">${LIVELLI.map((l, n) =>
-        `<option value="${n}" ${n === (valore?.[v] || 0) ? 'selected' : ''}>${l}</option>`).join('')}</select>`).join('')}</div></div>`;
+    return `<div class="campo">${esc(c.etichetta)}<table class="livelli">
+      <thead><tr><th></th><th>Istruttore</th><th>Direttore</th></tr></thead>
+      <tbody>${c.opzioni.map(([v, t]) => `<tr><th>${esc(t)}</th>${[1, 2].map((n) => `
+        <td><input type="checkbox" name="${c.nome}:${esc(v)}:${n}" aria-label="${esc(t)} ${LIVELLI[n].toLowerCase()}"
+          ${(valore?.[v] || 0) >= n ? 'checked' : ''}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   if (c.tipo === 'select') {
     return `<label>${esc(c.etichetta)}<select name="${c.nome}" ${req}>${c.opzioni.map(([v, t]) =>
@@ -80,6 +83,17 @@ function campoHtml(c, valore) {
     return `<label>${esc(c.etichetta)}<textarea name="${c.nome}" rows="3">${esc(valore)}</textarea></label>`;
   }
   return `<label>${esc(c.etichetta)}<input type="${c.tipo || 'text'}" name="${c.nome}" value="${esc(valore)}" ${req} ${c.extra || ''}></label>`;
+}
+
+const livelloSpuntato = (form, nome) => (form.elements[`${nome}:2`].checked ? 2 : form.elements[`${nome}:1`].checked ? 1 : 0);
+
+// Chi dirige una disciplina la insegna anche: Direttore spunta Istruttore, togliere Istruttore toglie Direttore
+function collegaLivelli(radice) {
+  radice.querySelectorAll('.livelli input').forEach((x) => x.onchange = () => {
+    const [istruttore, direttore] = x.closest('tr').querySelectorAll('input');
+    if (x === direttore && direttore.checked) istruttore.checked = true;
+    if (x === istruttore && !istruttore.checked) direttore.checked = false;
+  });
 }
 
 /** Ripete il modulo finché il salvataggio non riesce o l'utente annulla. */
