@@ -30,8 +30,8 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 ## Richieste di disponibilità (WhatsApp)
 
 1. In **Corsi** si selezionano i corsi (quelli in bozza sono già spuntati) e si preme **Richiedi disponibilità**.
-2. Si apre la tabella **istruttori × corsi**, già spuntata con chi può tenere ogni corso (abilitato al tipo e,
-   per i corsi AUSL, iscritto all'albo formatori). Si filtra per IRC / IRCcom / entrambi e per CoES / VdA
+2. Si apre la tabella **istruttori × corsi**, già spuntata con chi può tenere ogni corso (abilitato al tipo,
+   nella certificazione IRC / IRCcom del corso se indicata, e per i corsi AUSL iscritto all'albo formatori). Si filtra per IRC / IRCcom / entrambi e per CoES / VdA
    e si tolgono o aggiungono spunte a mano. Le scelte fuori regola chiedono conferma, ma non sono bloccate.
    Ogni istruttore spuntato riceve un link personale `/d/<token>`, valido 30 giorni, con i soli corsi spuntati.
 3. In **Richieste**, il pulsante **WhatsApp** apre la chat con il messaggio già scritto (formato in `public/messaggio.js`).
@@ -41,8 +41,9 @@ Equità: si contano le giornate assegnate negli ultimi 12 mesi (anche quelle gi�
 ## Anagrafica degli istruttori (link condiviso)
 
 In **Istruttori** → **Link per l'anagrafica** si crea un link `/a/<token>` da mandare nella chat degli istruttori
-(c'è anche il messaggio già pronto da copiare). Ognuno inserisce codice fiscale, cellulare, email, profilo, albo AUSL e,
-per ogni tipo di corso e per IRC / IRCcom, se è istruttore o direttore. Il codice fiscale si controlla col carattere finale (`src/anagrafica.js`).
+(c'è anche il messaggio già pronto da copiare). Ognuno inserisce codice fiscale, cellulare, email, profilo, albo AUSL,
+le certificazioni (IRC, IRCcom) e, per ogni tipo di corso e per ciascuna certificazione, se è istruttore o direttore.
+Il codice fiscale si controlla col carattere finale (`src/anagrafica.js`).
 Chi è già in elenco (stesso codice fiscale, oppure stesso nome e cognome, maiuscole a parte) aggiorna la sua scheda, gli altri vengono aggiunti attivi.
 La pagina non mostra mai i dati già salvati. Le schede compilate così restano **Da verificare** finché un coordinatore non le apre e salva.
 Il link vale finché non si disattiva o se ne genera uno nuovo (il token sta in `impostazioni`, chiave `link_anagrafica`).
@@ -53,7 +54,7 @@ Tutti possono disattivare un istruttore; solo l'amministratore può eliminarlo (
 
 In **Corsi** → **Scarica modello** si scarica un CSV di esempio da compilare in Excel.
 Con **Importa da file** si sceglie il CSV (da Excel: "Salva con nome" → CSV; vanno bene `;` e `,`).
-La prima riga contiene i nomi delle colonne: obbligatorie **Data** e **Tipo**, facoltative Categoria, CoES / VdA,
+La prima riga contiene i nomi delle colonne: obbligatorie **Data** e **Tipo**, facoltative Categoria, IRC / IRCcom, CoES / VdA,
 Retraining, Ora inizio, Ora fine (oppure Orario `8-13`), Sede, Committente, Istruttori, Note.
 Il tipo accetta anche la r del retraining (`BLSDr`); le date come `15/11/2026` o `2026-11-15`.
 Prima di salvare si vede un'anteprima con gli errori riga per riga.

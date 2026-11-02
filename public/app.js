@@ -50,7 +50,10 @@ function modulo(titolo, campi, valori = {}) {
       for (const c of campi) {
         if (c.tipo === 'checkbox') dati[c.nome] = dialogoForm.elements[c.nome].checked;
         else if (c.tipo === 'checks') dati[c.nome] = [...dialogoForm.querySelectorAll(`[name="${c.nome}"]:checked`)].map((e) => e.value);
-        else if (c.tipo === 'livelli') dati[c.nome] = Object.fromEntries(c.opzioni.map(([v]) => [v, livelloSpuntato(dialogoForm, `${c.nome}:${v}`)]));
+        else if (c.tipo === 'livelli') {
+          dati[c.nome] = Object.fromEntries(CERTIFICAZIONI.map(([k]) =>
+            [k, Object.fromEntries(c.opzioni.map(([v]) => [v, livelloSpuntato(dialogoForm, `${c.nome}:${k}:${v}`)]))]));
+        }
         else dati[c.nome] = dialogoForm.elements[c.nome].value;
       }
       resolve(dati);
@@ -67,13 +70,15 @@ function campoHtml(c, valore) {
     return `<label>${esc(c.etichetta)}<span class="checks">${c.opzioni.map(([v, t]) =>
       `<label class="check"><input type="checkbox" name="${c.nome}" value="${esc(v)}" ${(valore || []).includes(v) ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</span></label>`;
   }
-  // Un livello per voce (0 = no, 1 = istruttore, 2 = direttore); il valore è { voce: livello }
+  // Un livello per voce e certificazione (0 = no, 1 = istruttore, 2 = direttore); il valore è { irc: { voce: livello }, irccom: {...} }
   if (c.tipo === 'livelli') {
     return `<div class="campo">${esc(c.etichetta)}<table class="livelli">
-      <thead><tr><th></th><th>Istruttore</th><th>Direttore</th></tr></thead>
-      <tbody>${c.opzioni.map(([v, t]) => `<tr><th>${esc(t)}</th>${[1, 2].map((n) => `
-        <td><input type="checkbox" name="${c.nome}:${esc(v)}:${n}" aria-label="${esc(t)} ${LIVELLI[n].toLowerCase()}"
-          ${(valore?.[v] || 0) >= n ? 'checked' : ''}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      <thead><tr><th rowspan="2"></th>${CERTIFICAZIONI.map(([, t]) => `<th colspan="2" class="gruppo">${t}</th>`).join('')}</tr>
+        <tr>${CERTIFICAZIONI.map(() => `<th class="gruppo">${LIVELLI[1]}</th><th>${LIVELLI[2]}</th>`).join('')}</tr></thead>
+      <tbody>${c.opzioni.map(([v, t]) => `<tr><th>${esc(t)}</th>${CERTIFICAZIONI.map(([k, tk]) => [1, 2].map((n) => `
+        <td class="${n === 1 ? 'gruppo' : ''}"><input type="checkbox" name="${c.nome}:${k}:${esc(v)}:${n}"
+          aria-label="${esc(t)} ${tk} ${LIVELLI[n].toLowerCase()}" ${(valore?.[k]?.[v] || 0) >= n ? 'checked' : ''}></td>`).join('')).join('')}</tr>`).join('')}
+      </tbody></table></div>`;
   }
   if (c.tipo === 'select') {
     return `<label>${esc(c.etichetta)}<select name="${c.nome}" ${req}>${c.opzioni.map(([v, t]) =>
@@ -90,7 +95,7 @@ const livelloSpuntato = (form, nome) => (form.elements[`${nome}:2`].checked ? 2 
 // Chi dirige una disciplina la insegna anche: Direttore spunta Istruttore, togliere Istruttore toglie Direttore
 function collegaLivelli(radice) {
   radice.querySelectorAll('.livelli input').forEach((x) => x.onchange = () => {
-    const [istruttore, direttore] = x.closest('tr').querySelectorAll('input');
+    const [istruttore, direttore] = [1, 2].map((n) => radice.querySelector(`[name="${CSS.escape(`${x.name.slice(0, -2)}:${n}`)}"]`));
     if (x === direttore && direttore.checked) istruttore.checked = true;
     if (x === istruttore && !istruttore.checked) direttore.checked = false;
   });
@@ -116,17 +121,27 @@ async function moduloESalva(titolo, campi, valori, salva) {
 const nomeStato = (codice) => stati.find((s) => s.codice === codice)?.etichetta || codice;
 const CATEGORIE = [['volontari', 'Volontari del soccorso'], ['ausl', 'AUSL']];
 const nomeTipo = (c) => c.tipo + (c.retraining ? 'r' : '');
-const nomeCategoria = (c) => (c.categoria === 'ausl' ? 'AUSL' : 'Volontari') + (c.circuito ? ` · ${c.circuito}` : '') + (c.retraining ? ' · retraining' : '');
 const LIVELLI = ['—', 'Istruttore', 'Direttore'];
-// IRC e IRCcom valgono 0, 1 (istruttore) o 2 (direttore)
+const CERTIFICAZIONI = [['irc', 'IRC'], ['irccom', 'IRCcom']];
+const NOMI_CERTIFICAZIONI = Object.fromEntries(CERTIFICAZIONI);
+const nomeCategoria = (c) => (c.categoria === 'ausl' ? 'AUSL' : 'Volontari') + (c.certificazione ? ` · ${NOMI_CERTIFICAZIONI[c.certificazione]}` : '')
+  + (c.circuito ? ` · ${c.circuito}` : '') + (c.retraining ? ' · retraining' : '');
+// Es. "BLSD IRCcom", o solo "BLSD" se il corso non indica la certificazione
+const disciplina = (c) => c.tipo + (c.certificazione ? ` ${NOMI_CERTIFICAZIONI[c.certificazione]}` : '');
+// Le abilitazioni valgono 0, 1 (istruttore) o 2 (direttore) per ogni certificazione
 const conLivello = (nome, livello) => livello && nome + (livello === 2 ? ' dir.' : '');
-const certificazioni = (i) => [conLivello('IRC', i.irc), conLivello('IRCcom', i.irccom)].filter(Boolean).join(' + ');
+const nomiCertificazioni = (i) => CERTIFICAZIONI.filter(([k]) => i[k]).map(([, t]) => t);
+const certificazioni = (i) => nomiCertificazioni(i).join(' + ');
+// Es. "BLSD IRC dir. / IRCcom"
+const abilitazioniIstruttore = (i) => ordinaAbilitazioni(i.abilitazioni).map((a) =>
+  `${a} ${CERTIFICAZIONI.filter(([k]) => i.livelli[k][a]).map(([k, t]) => conLivello(t, i.livelli[k][a])).join(' / ')}`);
 
 async function campiCorso() {
   const [committenti, utenti] = await Promise.all([api('GET', '/committenti'), api('GET', '/utenti')]);
   return [
     { nome: 'data', etichetta: 'Data', tipo: 'date', obbligatorio: true },
     { nome: 'categoria', etichetta: 'Categoria', tipo: 'select', opzioni: CATEGORIE },
+    { nome: 'certificazione', etichetta: 'IRC / IRCcom', tipo: 'select', opzioni: [['', '—'], ...CERTIFICAZIONI] },
     { nome: 'circuito', etichetta: 'CoES / VdA', tipo: 'select', opzioni: [['', '—'], ['CoES', 'CoES'], ['VdA', 'VdA']] },
     { nome: 'tipo', etichetta: 'Tipo di corso', tipo: 'select', opzioni: abilitazioni.map((a) => [a.codice, a.codice]) },
     { nome: 'retraining', etichetta: 'Retraining', tipo: 'checkbox' },
@@ -336,7 +351,7 @@ function disegnaCorso({ corso, candidati, avvisi }) {
       <thead><tr><th>Istruttore</th><th>Profilo</th><th>Abilitato</th><th>Disponibilità</th><th>Giornate 12 mesi</th><th>Ultimo corso</th><th>Assegnazione</th></tr></thead>
       <tbody>${candidati.filter((c) => c.attivo || c.ruolo).map((c) => `
         <tr class="${c.ruolo ? 'assegnato' : ''}">
-          <td>${esc(nomeCompleto(c))}${c.direzioni.includes(corso.tipo) ? ' <span class="etichetta neutro">Dir</span>' : ''}${c.altri_stesso_giorno ? ' <span class="etichetta no">Già impegnato</span>' : ''}</td>
+          <td>${esc(nomeCompleto(c))}${c.livello === 2 ? ' <span class="etichetta neutro">Dir</span>' : ''}${c.altri_stesso_giorno ? ' <span class="etichetta no">Già impegnato</span>' : ''}</td>
           <td>${c.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}</td>
           <td>${c.abilitato ? '✓' : '<span class="etichetta no">No</span>'}</td>
           <td><select data-disp="${c.id}">${[['', '—'], ['si', 'Sì'], ['forse', 'Forse'], ['no', 'No']].map(([v, t]) =>
@@ -374,9 +389,10 @@ function disegnaCorso({ corso, candidati, avvisi }) {
 // Le regole complete sono sul server (src/regole.js); qui solo quelle sul singolo istruttore, per chiedere conferma prima
 function problemiCandidato(corso, c, ruolo) {
   const p = [];
-  if (!c.abilitazioni.includes(corso.tipo)) p.push(`non abilitato ${corso.tipo}`);
+  // c.livello arriva dal server: 0, 1 (istruttore) o 2 (direttore), nella certificazione del corso se indicata
+  if (c.livello < 1) p.push(`non abilitato ${disciplina(corso)}`);
   if (corso.categoria === 'ausl' && !c.albo_ausl) p.push('non iscritto all\'albo formatori AUSL');
-  if (ruolo === 'direttore' && !c.direzioni.includes(corso.tipo)) p.push(`non è direttore ${corso.tipo}`);
+  if (ruolo === 'direttore' && c.livello < 2) p.push(`non è direttore ${disciplina(corso)}`);
   if (!c.disponibilita) p.push('non ha dato disponibilità');
   else if (c.disponibilita !== 'si') p.push(`ha risposto ${ETICHETTE_RISPOSTA[c.disponibilita].toUpperCase()}`);
   if (c.altri_stesso_giorno) p.push('già assegnato a un altro corso lo stesso giorno');
@@ -555,28 +571,23 @@ function campiIstruttore() {
     { nome: 'email', etichetta: 'Email', tipo: 'email' },
     { nome: 'profilo', etichetta: 'Profilo', tipo: 'select', opzioni: [['sanitario', 'Sanitario'], ['tecnico', 'Tecnico']] },
     { nome: 'albo_ausl', etichetta: 'Iscritto all\'albo formatori AUSL', tipo: 'checkbox' },
-    { nome: 'certificazioni', etichetta: 'Certificazioni', tipo: 'livelli', opzioni: [['irc', 'IRC'], ['irccom', 'IRCcom']] },
+    { nome: 'certificazioni', etichetta: 'Certificazioni', tipo: 'checks', opzioni: CERTIFICAZIONI },
     { nome: 'livelli', etichetta: 'Abilitazioni', tipo: 'livelli', opzioni: abilitazioni.map((a) => [a.codice, a.codice]) },
     { nome: 'attivo', etichetta: 'Attivo', tipo: 'checkbox' },
     { nome: 'note', etichetta: 'Note', tipo: 'textarea' },
   ];
 }
 
-// Nel modulo istruttore certificazioni e abilitazioni sono livelli; l'API usa irc, irccom, abilitazioni[] e direzioni[]
+// Nel modulo istruttore le certificazioni sono un elenco; l'API usa irc e irccom
 function inModulo(i) {
-  return {
-    ...i,
-    certificazioni: { irc: i.irc, irccom: i.irccom },
-    livelli: Object.fromEntries(i.abilitazioni.map((a) => [a, i.direzioni.includes(a) ? 2 : 1])),
-  };
+  return { ...i, certificazioni: CERTIFICAZIONI.map(([k]) => k).filter((k) => i[k]) };
 }
 
-function daModulo({ certificazioni, livelli, ...dati }) {
-  const con = (minimo) => Object.keys(livelli).filter((a) => livelli[a] >= minimo);
-  return { ...dati, ...certificazioni, abilitazioni: con(1), direzioni: con(2) };
+function daModulo({ certificazioni, ...dati }) {
+  return { ...dati, ...Object.fromEntries(CERTIFICAZIONI.map(([k]) => [k, certificazioni.includes(k)])) };
 }
 
-const eDirettore = (i) => i.direzioni.length > 0 || i.irc === 2 || i.irccom === 2;
+const eDirettore = (i) => i.direzioni.length > 0;
 
 // Abilitazioni nell'ordine dell'elenco generale; quelle sconosciute in fondo, alfabetiche.
 function ordinaAbilitazioni(codici) {
@@ -646,8 +657,8 @@ async function paginaIstruttori() {
             <div class="muted">${i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico'}${i.attivo ? '' : ' · disattivato'}</div>
             ${i.da_verificare ? '<span class="etichetta forse">Da verificare</span>' : ''}</td>
           <td class="contatti"><div>${esc(i.telefono || '—')}</div>${i.email ? `<div class="muted" title="${esc(i.email)}">${esc(i.email)}</div>` : ''}</td>
-          <td class="qualifiche">${gruppoEtichette([i.albo_ausl && 'Albo AUSL', conLivello('IRC', i.irc), conLivello('IRCcom', i.irccom)].filter(Boolean), 'si')}
-            ${gruppoEtichette(ordinaAbilitazioni(i.abilitazioni).map((a) => conLivello(a, i.direzioni.includes(a) ? 2 : 1)), 'neutro')}</td>
+          <td class="qualifiche">${gruppoEtichette([i.albo_ausl && 'Albo AUSL', ...nomiCertificazioni(i)].filter(Boolean), 'si')}
+            ${gruppoEtichette(abilitazioniIstruttore(i), 'neutro')}</td>
           <td class="numero" data-etichetta="Giornate 12 mesi">${i.giornate}</td>
           <td class="azioni-riga">
             <button class="piccolo" data-attivo="${i.id}">${i.attivo ? 'Disattiva' : 'Riattiva'}</button>

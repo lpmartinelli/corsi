@@ -149,8 +149,9 @@ input, select, textarea {
 .checks { display: flex; flex-wrap: wrap; gap: 14px; }
 .campo { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 .livelli { width: auto; }
-.livelli th, .livelli td { padding: 6px 14px; text-align: center; }
-.livelli th:first-child { padding-left: 0; text-align: left; }
+.livelli th, .livelli td { padding: 6px 10px; text-align: center; }
+.livelli tbody th, .livelli th[rowspan] { padding-left: 0; text-align: left; }
+.livelli .gruppo { border-left: 1px solid var(--border); }
 .livelli tbody th { text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 400; color: var(--text); }
 .livelli input { width: 18px; height: 18px; margin: 0; }
 .azioni { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

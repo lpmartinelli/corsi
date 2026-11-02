@@ -19,24 +19,24 @@ const campo = (nome, etichetta, tipo, valore, extra = '') =>
   `<label>${etichetta}<input type="${tipo}" name="${nome}" value="${esc(valore)}" required ${extra}></label>`;
 const spunta = (nome, etichetta, valore, attr = '') =>
   `<label class="check"><input type="checkbox" name="${nome}" ${attr} ${valore ? 'checked' : ''}> ${esc(etichetta)}</label>`;
-// Per ogni voce [nome del campo, etichetta, livello]: niente (0), istruttore (1) o direttore (2)
-const livelli = (voci) => `<table class="livelli">
-  <thead><tr><th></th><th>${LIVELLI[1]}</th><th>${LIVELLI[2]}</th></tr></thead>
-  <tbody>${voci.map(([nome, etichetta, livello]) => `<tr><th>${esc(etichetta)}</th>${[1, 2].map((n) => `
-    <td><input type="checkbox" name="${esc(nome)}:${n}" aria-label="${esc(etichetta)} ${LIVELLI[n].toLowerCase()}"
-      ${(livello || 0) >= n ? 'checked' : ''}></td>`).join('')}</tr>`).join('')}</tbody></table>`;
+// Per ogni abilitazione e certificazione: niente (0), istruttore (1) o direttore (2); livelli è { irc: { BLSD: 2 }, irccom: {...} }
+const tabellaLivelli = (abilitazioni, livelli) => `<table class="livelli">
+  <thead><tr><th rowspan="2"></th>${CERTIFICAZIONI.map(([, t]) => `<th colspan="2" class="gruppo">${t}</th>`).join('')}</tr>
+    <tr>${CERTIFICAZIONI.map(() => `<th class="gruppo">${LIVELLI[1]}</th><th>${LIVELLI[2]}</th>`).join('')}</tr></thead>
+  <tbody>${abilitazioni.map((a) => `<tr><th>${esc(a)}</th>${CERTIFICAZIONI.map(([k, t]) => [1, 2].map((n) => `
+    <td class="${n === 1 ? 'gruppo' : ''}"><input type="checkbox" name="${k}:${esc(a)}:${n}" aria-label="${esc(a)} ${t} ${LIVELLI[n].toLowerCase()}"
+      ${(livelli[k]?.[a] || 0) >= n ? 'checked' : ''}></td>`).join('')).join('')}</tr>`).join('')}</tbody></table>`;
 
 // Chi dirige una disciplina la insegna anche: Direttore spunta Istruttore, togliere Istruttore toglie Direttore
 function collegaLivelli(radice) {
   radice.querySelectorAll('.livelli input').forEach((x) => x.onchange = () => {
-    const [istruttore, direttore] = x.closest('tr').querySelectorAll('input');
+    const [istruttore, direttore] = [1, 2].map((n) => radice.querySelector(`[name="${CSS.escape(`${x.name.slice(0, -2)}:${n}`)}"]`));
     if (x === direttore && direttore.checked) istruttore.checked = true;
     if (x === istruttore && !istruttore.checked) direttore.checked = false;
   });
 }
 
-function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: [], direzioni: [] }) {
-  const livelloCorso = (a) => (dati.direzioni.includes(a) ? 2 : dati.abilitazioni.includes(a) ? 1 : 0);
+function disegna({ abilitazioni }, dati = { profilo: 'sanitario', livelli: {} }) {
   app.innerHTML = `
     <h1>I tuoi dati di istruttore</h1>
     <p class="muted">Servono per organizzare i corsi e mandarti le richieste di disponibilità su WhatsApp.
@@ -52,8 +52,10 @@ function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: 
         ${[['sanitario', 'Sanitario'], ['tecnico', 'Tecnico']].map(([v, t]) =>
           `<label class="check"><input type="radio" name="profilo" value="${v}" ${dati.profilo === v ? 'checked' : ''}> ${t}</label>`).join('')}
       </span></label>
-      <div class="campo">Corsi per cui sei istruttore o direttore${livelli(abilitazioni.map((a) => [`corso:${a}`, a, livelloCorso(a)]))}</div>
-      <div class="campo">Certificazioni${livelli(CERTIFICAZIONI.map(([n, t]) => [n, t, dati[n]]))}</div>
+      <label>Certificazioni<span class="checks">
+        ${CERTIFICAZIONI.map(([n, t]) => spunta(n, t, dati[n])).join('')}
+      </span></label>
+      <div class="campo">Corsi per cui sei istruttore o direttore${tabellaLivelli(abilitazioni, dati.livelli)}</div>
       ${spunta('albo_ausl', 'Sono iscritto/a all\'albo formatori AUSL', dati.albo_ausl)}
       <p class="errore" id="errore" hidden></p>
       <button class="primario">Invia</button>
@@ -67,9 +69,8 @@ function disegna({ abilitazioni }, dati = { profilo: 'sanitario', abilitazioni: 
     const inviati = {
       ...Object.fromEntries(['nome', 'cognome', 'codice_fiscale', 'telefono', 'email'].map((n) => [n, form.elements[n].value])),
       profilo: form.elements.profilo.value,
-      abilitazioni: abilitazioni.filter((a) => livello(`corso:${a}`) >= 1),
-      direzioni: abilitazioni.filter((a) => livello(`corso:${a}`) === 2),
-      ...Object.fromEntries(CERTIFICAZIONI.map(([n]) => [n, livello(n)])),
+      ...Object.fromEntries(CERTIFICAZIONI.map(([n]) => [n, form.elements[n].checked])),
+      livelli: Object.fromEntries(CERTIFICAZIONI.map(([k]) => [k, Object.fromEntries(abilitazioni.map((a) => [a, livello(`${k}:${a}`)]))])),
       albo_ausl: form.elements.albo_ausl.checked,
     };
     const bottone = form.querySelector('button');

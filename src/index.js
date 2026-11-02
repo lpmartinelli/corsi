@@ -3,7 +3,7 @@ import {
   pubblico, stringheUguali, utenteCorrente, verificaPassword,
 } from './auth.js';
 import { codiceFiscaleValido, emailValida, normalizzaCodiceFiscale } from './anagrafica.js';
-import { puoRicevere, verificaSquadra } from './regole.js';
+import { livelloNelCorso, puoRicevere, verificaSquadra } from './regole.js';
 
 const VALIDITA_LINK_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -36,16 +36,23 @@ async function listaIstruttori(env) {
   return results.map(conAbilitazioni);
 }
 
-// direzioni: le abilitazioni di cui l'istruttore è anche direttore
-const COLONNE_ABILITAZIONI = `group_concat(ia.abilitazione) AS abilitazioni,
-  group_concat(CASE WHEN ia.direttore THEN ia.abilitazione END) AS direzioni`;
+const COLONNE_ABILITAZIONI = `group_concat(ia.certificazione || ':' || ia.abilitazione || ':' || ia.direttore) AS livelli`;
 
+const CERTIFICAZIONI = ['irc', 'irccom'];
+
+/**
+ * livelli: { irc: { BLSD: 2 }, irccom: { BLSD: 1 } } (1 = istruttore, 2 = direttore).
+ * abilitazioni e direzioni valgono per l'una o l'altra certificazione: le usano le regole.
+ */
 function conAbilitazioni(riga) {
-  const elenco = (v) => (v ? v.split(',') : []);
-  return { ...riga, abilitazioni: elenco(riga.abilitazioni), direzioni: elenco(riga.direzioni) };
+  const voci = riga.livelli ? riga.livelli.split(',').map((v) => v.split(':')) : [];
+  const livelli = Object.fromEntries(CERTIFICAZIONI.map((c) => [c, {}]));
+  for (const [c, a, direttore] of voci) livelli[c][a] = direttore === '1' ? 2 : 1;
+  const con = (minimo) => [...new Set(voci.filter(([c, a]) => livelli[c][a] >= minimo).map(([, a]) => a))];
+  return { ...riga, livelli, abilitazioni: con(1), direzioni: con(2) };
 }
 
-/** IRC e IRCcom: 0 = no, 1 = istruttore, 2 = direttore. */
+/** Per disciplina: 0 = no, 1 = istruttore, 2 = direttore. */
 const livello = (v) => ([1, 2].includes(Number(v)) ? Number(v) : 0);
 
 /** Email e codice fiscale facoltativi: se ci sono devono essere validi. Il codice fiscale si salva maiuscolo e senza spazi. */
@@ -60,7 +67,7 @@ function contatti(body) {
 async function salvaIstruttore(env, id, body) {
   richiedi(body, ['nome', 'cognome', 'profilo']);
   const valori = [body.nome.trim(), body.cognome.trim(), body.telefono?.trim() || null, ...contatti(body), body.profilo,
-    body.albo_ausl ? 1 : 0, livello(body.irc), livello(body.irccom), body.attivo === false ? 0 : 1, body.note || null];
+    body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0, body.attivo === false ? 0 : 1, body.note || null];
 
   // Salvata da un coordinatore, la scheda è verificata
   if (id) {
@@ -70,17 +77,20 @@ async function salvaIstruttore(env, id, body) {
     ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, albo_ausl,
       irc, irccom, attivo, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...valori).first());
   }
-  await salvaAbilitazioni(env, id, body.abilitazioni, body.direzioni);
+  await salvaAbilitazioni(env, id, body.livelli);
   return { id };
 }
 
-/** direzioni: le abilitazioni di cui è anche direttore (le altre vengono ignorate). */
-async function salvaAbilitazioni(env, id, abilitazioni, direzioni) {
+/** livelli come in conAbilitazioni; con codici si tengono solo le abilitazioni in elenco. */
+async function salvaAbilitazioni(env, id, livelli, codici) {
+  const voci = CERTIFICAZIONI.flatMap((c) => Object.entries(livelli?.[c] || {})
+    .filter(([a, n]) => livello(n) && (!codici || codici.includes(a)))
+    .map(([a, n]) => [a, c, livello(n) === 2 ? 1 : 0]));
   await env.DB.batch([
     env.DB.prepare('DELETE FROM istruttori_abilitazioni WHERE istruttore_id = ?').bind(id),
-    ...(abilitazioni || []).map((a) =>
-      env.DB.prepare('INSERT INTO istruttori_abilitazioni (istruttore_id, abilitazione, direttore) VALUES (?, ?, ?)')
-        .bind(id, a, (direzioni || []).includes(a) ? 1 : 0)),
+    ...voci.map((v) =>
+      env.DB.prepare('INSERT INTO istruttori_abilitazioni (istruttore_id, abilitazione, certificazione, direttore) VALUES (?, ?, ?, ?)')
+        .bind(id, ...v)),
   ]);
 }
 
@@ -134,7 +144,7 @@ async function compilaAnagrafica(env, token, body) {
   const [email, cf] = contatti({ email: testo(body.email, 120), codice_fiscale: body.codice_fiscale });
   if (!['sanitario', 'tecnico'].includes(body.profilo)) throw new ErroreRichiesta('Profilo non valido');
   const codici = (await env.DB.prepare('SELECT codice FROM abilitazioni').all()).results.map((a) => a.codice);
-  const valori = [nome, cognome, telefono, email, cf, body.profilo, body.albo_ausl ? 1 : 0, livello(body.irc), livello(body.irccom)];
+  const valori = [nome, cognome, telefono, email, cf, body.profilo, body.albo_ausl ? 1 : 0, body.irc ? 1 : 0, body.irccom ? 1 : 0];
 
   let { id } = await env.DB.prepare(`SELECT id FROM istruttori
     WHERE codice_fiscale = ?1 OR (nome = ?2 COLLATE NOCASE AND cognome = ?3 COLLATE NOCASE)
@@ -147,7 +157,7 @@ async function compilaAnagrafica(env, token, body) {
     ({ id } = await env.DB.prepare(`INSERT INTO istruttori (nome, cognome, telefono, email, codice_fiscale, profilo, albo_ausl,
       irc, irccom, da_verificare) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING id`).bind(...valori).first());
   }
-  await salvaAbilitazioni(env, id, (body.abilitazioni || []).filter((a) => codici.includes(a)), body.direzioni);
+  await salvaAbilitazioni(env, id, body.livelli, codici);
   return { ok: true };
 }
 
@@ -181,21 +191,24 @@ async function listaCorsi(env, url) {
   return results;
 }
 
+/** IRC o IRCcom; null se il corso non la indica. */
+const certificazioneCorso = (v) => (CERTIFICAZIONI.includes(v) ? v : null);
+
 async function salvaCorso(env, id, body) {
   richiedi(body, ['tipo', 'data']);
   if (body.stato && !(await env.DB.prepare('SELECT 1 FROM stati_corso WHERE codice = ?').bind(body.stato).first())) {
     throw new ErroreRichiesta('Stato non valido: forse è stato tolto dalle Impostazioni');
   }
-  const valori = [body.committente_id || null, body.categoria || 'volontari', body.circuito || null, body.tipo, body.retraining ? 1 : 0,
-    body.data, body.ora_inizio || null, body.ora_fine || null, body.sede || null, Number(body.istruttori_richiesti) || 2,
-    body.coordinatore_id || null, body.stato || 'bozza', body.note || null];
+  const valori = [body.committente_id || null, body.categoria || 'volontari', body.circuito || null, certificazioneCorso(body.certificazione),
+    body.tipo, body.retraining ? 1 : 0, body.data, body.ora_inizio || null, body.ora_fine || null, body.sede || null,
+    Number(body.istruttori_richiesti) || 2, body.coordinatore_id || null, body.stato || 'bozza', body.note || null];
   if (id) {
-    await env.DB.prepare(`UPDATE corsi SET committente_id=?, categoria=?, circuito=?, tipo=?, retraining=?, data=?, ora_inizio=?, ora_fine=?,
-      sede=?, istruttori_richiesti=?, coordinatore_id=?, stato=?, note=? WHERE id=?`).bind(...valori, id).run();
+    await env.DB.prepare(`UPDATE corsi SET committente_id=?, categoria=?, circuito=?, certificazione=?, tipo=?, retraining=?, data=?,
+      ora_inizio=?, ora_fine=?, sede=?, istruttori_richiesti=?, coordinatore_id=?, stato=?, note=? WHERE id=?`).bind(...valori, id).run();
     return { id };
   }
-  return env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, tipo, retraining, data, ora_inizio, ora_fine, sede,
-    istruttori_richiesti, coordinatore_id, stato, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+  return env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, certificazione, tipo, retraining, data, ora_inizio, ora_fine,
+    sede, istruttori_richiesti, coordinatore_id, stato, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
     .bind(...valori).first();
 }
 
@@ -220,6 +233,7 @@ async function importaCorsi(env, utente, body) {
       data: c.data, tipo: c.tipo, retraining: c.retraining ? 1 : 0,
       categoria: c.categoria === 'ausl' ? 'ausl' : 'volontari',
       circuito: ['CoES', 'VdA'].includes(c.circuito) ? c.circuito : null,
+      certificazione: certificazioneCorso(c.certificazione),
       ora_inizio: ora(c.ora_inizio), ora_fine: ora(c.ora_fine),
       sede: c.sede?.trim() || null, committente: c.committente?.trim() || null,
       istruttori: Math.max(1, Math.floor(Number(c.istruttori_richiesti)) || 2), note: c.note || null,
@@ -231,10 +245,10 @@ async function importaCorsi(env, utente, body) {
   const [nuoviCommittenti, inseriti] = await env.DB.batch([
     env.DB.prepare(`INSERT INTO committenti (nome) SELECT j.value FROM json_each(?) j
       WHERE NOT EXISTS (SELECT 1 FROM committenti c WHERE c.nome = j.value COLLATE NOCASE)`).bind(JSON.stringify(nomi)),
-    env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, tipo, retraining, data, ora_inizio, ora_fine, sede,
+    env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, certificazione, tipo, retraining, data, ora_inizio, ora_fine, sede,
         istruttori_richiesti, coordinatore_id, stato, note)
       SELECT (SELECT min(id) FROM committenti WHERE nome = j.value ->> 'committente' COLLATE NOCASE),
-        j.value ->> 'categoria', j.value ->> 'circuito', j.value ->> 'tipo', j.value ->> 'retraining', j.value ->> 'data',
+        j.value ->> 'categoria', j.value ->> 'circuito', j.value ->> 'certificazione', j.value ->> 'tipo', j.value ->> 'retraining', j.value ->> 'data',
         j.value ->> 'ora_inizio', j.value ->> 'ora_fine', j.value ->> 'sede', j.value ->> 'istruttori', ?2, 'bozza', j.value ->> 'note'
       FROM json_each(?1) j
       WHERE NOT EXISTS (SELECT 1 FROM corsi c WHERE c.data = j.value ->> 'data' AND c.tipo = j.value ->> 'tipo'
@@ -272,7 +286,7 @@ async function candidati(env, corso) {
   const ordineRisposta = { si: 0, forse: 1, null: 2, no: 3 };
   return results
     .map(conAbilitazioni)
-    .map((c) => ({ ...c, abilitato: puoRicevere({ ...c, attivo: 1 }, corso) }))
+    .map((c) => ({ ...c, abilitato: puoRicevere({ ...c, attivo: 1 }, corso), livello: livelloNelCorso(c, corso) }))
     .sort((x, y) =>
       ordineRisposta[x.disponibilita] - ordineRisposta[y.disponibilita]
       || Number(y.abilitato) - Number(x.abilitato)
@@ -540,7 +554,7 @@ async function salvaImpostazioni(env, body) {
 async function listaTipiCorso(env) {
   const { results } = await env.DB.prepare(`
     SELECT a.*, (SELECT count(*) FROM corsi WHERE tipo = a.codice) AS corsi,
-      (SELECT count(*) FROM istruttori_abilitazioni WHERE abilitazione = a.codice) AS istruttori
+      (SELECT count(DISTINCT istruttore_id) FROM istruttori_abilitazioni WHERE abilitazione = a.codice) AS istruttori
     FROM abilitazioni a ORDER BY a.codice`).all();
   return results;
 }

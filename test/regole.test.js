@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { puoRicevere, verificaSquadra } from '../src/regole.js';
+import { livelloNelCorso, puoRicevere, verificaSquadra } from '../src/regole.js';
 
 const corso = { tipo: 'BLSD', istruttori_richiesti: 2 };
 
@@ -66,7 +66,7 @@ test('corso AUSL: serve l\'albo formatori', () => {
 });
 
 test('chi riceve la richiesta', () => {
-  const i = { attivo: 1, albo_ausl: 0, abilitazioni: ['BLSD'] };
+  const i = { attivo: 1, albo_ausl: 0, abilitazioni: ['BLSD'], direzioni: [] };
   assert.equal(puoRicevere(i, { tipo: 'BLSD', categoria: 'volontari' }), true);
   assert.equal(puoRicevere(i, { tipo: 'PTC', categoria: 'volontari' }), false);
   assert.equal(puoRicevere(i, { tipo: 'BLSD', categoria: 'ausl' }), false);
@@ -92,4 +92,23 @@ test('si è direttori di una disciplina, non di tutte', () => {
     membro(1, 'sanitario', { ruolo: 'direttore', ...direttorePblsd }),
     membro(2, 'sanitario', { abilitazioni: ['PBLSD'] }),
   ]), []);
+});
+
+test('se il corso indica la certificazione conta solo quella', () => {
+  // Direttore BLSD in IRC, solo istruttore BLSD in IRCcom
+  const i = { attivo: 1, abilitazioni: ['BLSD'], direzioni: ['BLSD'], livelli: { irc: { BLSD: 2 }, irccom: { BLSD: 1 } } };
+  const soloIrc = { ...i, livelli: { irc: { BLSD: 2 }, irccom: {} } };
+  assert.equal(livelloNelCorso(i, corso), 2);
+  assert.equal(livelloNelCorso(i, { ...corso, certificazione: 'irccom' }), 1);
+  assert.equal(puoRicevere(soloIrc, { ...corso, certificazione: 'irccom' }), false);
+  assert.equal(puoRicevere(soloIrc, { ...corso, certificazione: 'irc' }), true);
+
+  const squadra = [
+    { istruttore: { id: 1, nome: 'N1', cognome: 'C1', profilo: 'sanitario', ...i }, ruolo: 'direttore', disponibilita: 'si' },
+    { istruttore: { id: 2, nome: 'N2', cognome: 'C2', profilo: 'sanitario', ...soloIrc }, ruolo: 'istruttore', disponibilita: 'si' },
+  ];
+  assert.deepEqual(verificaSquadra({ ...corso, certificazione: 'irc' }, squadra), []);
+  const avvisi = verificaSquadra({ ...corso, certificazione: 'irccom' }, squadra);
+  assert.deepEqual(codici(avvisi), ['NON_ABILITATO', 'NON_DIRETTORE']);
+  assert.match(avvisi.find((a) => a.codice === 'NON_ABILITATO').messaggio, /BLSD IRCcom/);
 });

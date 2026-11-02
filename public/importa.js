@@ -39,6 +39,7 @@ const COLONNE = {
   tipo: ['tipo', 'corso', 'tipo_corso', 'tipo_di_corso'],
   categoria: ['categoria'],
   circuito: ['circuito', 'coes_vda'],
+  certificazione: ['certificazione', 'irc_irccom'],
   retraining: ['retraining'],
   orario: ['orario', 'ore'],
   ora_inizio: ['ora_inizio', 'inizio', 'dalle'],
@@ -50,9 +51,9 @@ const COLONNE = {
 };
 
 export const MODELLO_CSV = [
-  'Data;Categoria;CoES / VdA;Tipo;Retraining;Ora inizio;Ora fine;Sede;Committente;Istruttori;Note',
-  '15/11/2026;Volontari;CoES;BLSD;;08:00;17:00;Modena;Croce Blu;3;',
-  '18/11/2026;AUSL;;BLSD;sì;14:00;18:00;Carpi;;2;Aula 2',
+  'Data;Categoria;IRC / IRCcom;CoES / VdA;Tipo;Retraining;Ora inizio;Ora fine;Sede;Committente;Istruttori;Note',
+  '15/11/2026;Volontari;IRCcom;CoES;BLSD;;08:00;17:00;Modena;Croce Blu;3;',
+  '18/11/2026;AUSL;;;BLSD;sì;14:00;18:00;Carpi;;2;Aula 2',
 ].join('\r\n') + '\r\n';
 
 const normalizza = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -107,6 +108,10 @@ function corsoDaRiga(v, codici) {
   const circ = (v.circuito || '').toLowerCase();
   corso.circuito = { '': null, coes: 'CoES', vda: 'VdA' }[circ];
   if (corso.circuito === undefined) errori.push(`CoES / VdA non valido: ${v.circuito}`);
+
+  const cert = (v.certificazione || '').toLowerCase().replace(/\s+/g, '');
+  corso.certificazione = { '': null, irc: 'irc', irccom: 'irccom' }[cert];
+  if (corso.certificazione === undefined) errori.push(`IRC / IRCcom non valido: ${v.certificazione}`);
 
   let [inizio, fine] = [v.ora_inizio || '', v.ora_fine || ''];
   if (v.orario && !inizio && !fine) [inizio = '', fine = ''] = v.orario.split(/\s*[-–]\s*/);
