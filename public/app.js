@@ -1,3 +1,4 @@
+import { TIPO_EXCEL, fileExcel } from '/esporta.js';
 import { MODELLO_CSV, corsiDaCsv } from '/importa.js';
 import { linkWhatsApp, rigaCorso, sezioni, testoMessaggio } from '/messaggio.js';
 
@@ -277,13 +278,17 @@ async function paginaCorsi() {
 
 // ---------- Import dei corsi da file ----------
 
-// Il BOM serve a Excel per aprire il file in UTF-8 senza rovinare gli accenti
-function scaricaModello() {
+function scarica(nome, blob) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['﻿' + MODELLO_CSV], { type: 'text/csv' }));
-  a.download = 'modello-corsi.csv';
+  a.href = URL.createObjectURL(blob);
+  a.download = nome;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// Il BOM serve a Excel per aprire il file in UTF-8 senza rovinare gli accenti
+function scaricaModello() {
+  scarica('modello-corsi.csv', new Blob(['﻿' + MODELLO_CSV], { type: 'text/csv' }));
 }
 
 async function importaCorsi(testo) {
@@ -641,6 +646,7 @@ async function paginaIstruttori() {
   const opzioni = (voci, valore) => voci.map(([v, t]) => `<option value="${esc(v)}" ${v === valore ? 'selected' : ''}>${esc(t)}</option>`).join('');
   app.innerHTML = `
     <div class="barra"><h1>Istruttori</h1><div>
+      <button id="esporta" title="Scarica gli istruttori mostrati, con i filtri applicati">Esporta in Excel</button>
       <button id="link-anagrafica">Link per l'anagrafica</button>
       <button class="primario" id="nuovo">Nuovo istruttore</button>
     </div></div>
@@ -715,10 +721,22 @@ async function paginaIstruttori() {
     Object.keys(f).forEach((k) => f[k] = '');
     paginaIstruttori();
   };
+  document.getElementById('esporta').onclick = () => esportaIstruttori(istruttori.filter((i) => istruttoreVisibile(i, f)));
   document.getElementById('link-anagrafica').onclick = mostraLinkAnagrafica;
   document.getElementById('nuovo').onclick = async () => {
     if (await moduloESalva('Nuovo istruttore', campiIstruttore(), { attivo: true, profilo: 'sanitario' }, (d) => api('POST', '/istruttori', daModulo(d)))) paginaIstruttori();
   };
+}
+
+function esportaIstruttori(istruttori) {
+  const siNo = (v) => (v ? 'sì' : 'no');
+  const intestazione = ['Cognome', 'Nome', 'Codice fiscale', 'Telefono', 'Email', 'Profilo', 'Attivo', 'Albo AUSL', 'IRC', 'IRCcom',
+    'Abilitazioni', 'Giornate 12 mesi', 'Da verificare', 'Note'];
+  const righe = istruttori.map((i) => [i.cognome, i.nome, i.codice_fiscale, i.telefono, i.email,
+    i.profilo === 'sanitario' ? 'Sanitario' : 'Tecnico', siNo(i.attivo), siNo(i.albo_ausl), siNo(i.irc), siNo(i.irccom),
+    abilitazioniIstruttore(i).join(', '), i.giornate, siNo(i.da_verificare), i.note]);
+  const oggi = new Date().toLocaleDateString('sv');   // AAAA-MM-GG
+  scarica(`istruttori-${oggi}.xlsx`, new Blob([fileExcel('Istruttori', intestazione, righe)], { type: TIPO_EXCEL }));
 }
 
 /** Link condiviso da mandare nella chat degli istruttori: ognuno compila la sua scheda. */
