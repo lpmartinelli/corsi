@@ -202,16 +202,16 @@ async function salvaCorso(env, id, body) {
   if (body.stato && !(await env.DB.prepare('SELECT 1 FROM stati_corso WHERE codice = ?').bind(body.stato).first())) {
     throw new ErroreRichiesta('Stato non valido: forse è stato tolto dalle Impostazioni');
   }
-  const valori = [body.committente_id || null, body.categoria || 'volontari', body.circuito || null, certificazioneCorso(body.certificazione),
+  const valori = [body.numero?.trim() || null, body.committente_id || null, body.categoria || 'volontari', body.circuito || null, certificazioneCorso(body.certificazione),
     body.tipo, body.retraining ? 1 : 0, body.data, body.ora_inizio || null, body.ora_fine || null, body.sede || null,
     Number(body.istruttori_richiesti) || 2, body.coordinatore_id || null, body.stato || 'bozza', body.note || null];
   if (id) {
-    await env.DB.prepare(`UPDATE corsi SET committente_id=?, categoria=?, circuito=?, certificazione=?, tipo=?, retraining=?, data=?,
+    await env.DB.prepare(`UPDATE corsi SET numero=?, committente_id=?, categoria=?, circuito=?, certificazione=?, tipo=?, retraining=?, data=?,
       ora_inizio=?, ora_fine=?, sede=?, istruttori_richiesti=?, coordinatore_id=?, stato=?, note=? WHERE id=?`).bind(...valori, id).run();
     return { id };
   }
-  return env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, certificazione, tipo, retraining, data, ora_inizio, ora_fine,
-    sede, istruttori_richiesti, coordinatore_id, stato, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+  return env.DB.prepare(`INSERT INTO corsi (numero, committente_id, categoria, circuito, certificazione, tipo, retraining, data, ora_inizio, ora_fine,
+    sede, istruttori_richiesti, coordinatore_id, stato, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
     .bind(...valori).first();
 }
 
@@ -233,7 +233,7 @@ async function importaCorsi(env, utente, body) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(c.data || '')) throw new ErroreRichiesta(`Corso ${i + 1}: data non valida`);
     if (!codici.includes(c.tipo)) throw new ErroreRichiesta(`Corso ${i + 1}: tipo sconosciuto`);
     return {
-      data: c.data, tipo: c.tipo, retraining: c.retraining ? 1 : 0,
+      data: c.data, numero: c.numero?.trim() || null, tipo: c.tipo, retraining: c.retraining ? 1 : 0,
       categoria: c.categoria === 'ausl' ? 'ausl' : 'volontari',
       circuito: ['CoES', 'VdA'].includes(c.circuito) ? c.circuito : null,
       certificazione: certificazioneCorso(c.certificazione),
@@ -248,9 +248,9 @@ async function importaCorsi(env, utente, body) {
   const [nuoviCommittenti, inseriti] = await env.DB.batch([
     env.DB.prepare(`INSERT INTO committenti (nome) SELECT j.value FROM json_each(?) j
       WHERE NOT EXISTS (SELECT 1 FROM committenti c WHERE c.nome = j.value COLLATE NOCASE)`).bind(JSON.stringify(nomi)),
-    env.DB.prepare(`INSERT INTO corsi (committente_id, categoria, circuito, certificazione, tipo, retraining, data, ora_inizio, ora_fine, sede,
+    env.DB.prepare(`INSERT INTO corsi (numero, committente_id, categoria, circuito, certificazione, tipo, retraining, data, ora_inizio, ora_fine, sede,
         istruttori_richiesti, coordinatore_id, stato, note)
-      SELECT (SELECT min(id) FROM committenti WHERE nome = j.value ->> 'committente' COLLATE NOCASE),
+      SELECT j.value ->> 'numero', (SELECT min(id) FROM committenti WHERE nome = j.value ->> 'committente' COLLATE NOCASE),
         j.value ->> 'categoria', j.value ->> 'circuito', j.value ->> 'certificazione', j.value ->> 'tipo', j.value ->> 'retraining', j.value ->> 'data',
         j.value ->> 'ora_inizio', j.value ->> 'ora_fine', j.value ->> 'sede', j.value ->> 'istruttori', ?2, 'bozza', j.value ->> 'note'
       FROM json_each(?1) j

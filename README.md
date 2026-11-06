@@ -54,7 +54,7 @@ Tutti possono disattivare un istruttore; solo l'amministratore può eliminarlo (
 
 In **Corsi** → **Scarica modello** si scarica un CSV di esempio da compilare in Excel.
 Con **Importa da file** si sceglie il CSV (da Excel: "Salva con nome" → CSV; vanno bene `;` e `,`).
-La prima riga contiene i nomi delle colonne: obbligatorie **Data** e **Tipo**, facoltative Categoria, IRC / IRCcom, CoES / VdA,
+La prima riga contiene i nomi delle colonne: obbligatorie **Data** e **Tipo**, facoltative Numero di corso, Categoria, IRC / IRCcom, CoES / VdA,
 Retraining, Ora inizio, Ora fine (oppure Orario `8-13`), Sede, Committente, Istruttori, Note.
 Il tipo accetta anche la r del retraining (`BLSDr`); le date come `15/11/2026` o `2026-11-15`.
 Prima di salvare si vede un'anteprima con gli errori riga per riga.

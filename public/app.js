@@ -42,6 +42,7 @@ function modulo(titolo, campi, valori = {}) {
     `<p class="errore" id="errore-modulo" hidden></p>
      <div class="azioni"><button value="annulla" formnovalidate>Annulla</button><button value="ok" class="primario">Salva</button></div>`;
   collegaLivelli(dialogoForm);
+  collegaFlag(dialogoForm);
   if (campi.some((c) => c.nome === 'certificazioni')) {
     collegaCertificazioni(dialogoForm, (k) => dialogoForm.querySelector(`[name="certificazioni"][value="${k}"]`));
   }
@@ -54,6 +55,7 @@ function modulo(titolo, campi, valori = {}) {
       for (const c of campi) {
         if (c.tipo === 'checkbox') dati[c.nome] = dialogoForm.elements[c.nome].checked;
         else if (c.tipo === 'checks') dati[c.nome] = [...dialogoForm.querySelectorAll(`[name="${c.nome}"]:checked`)].map((e) => e.value);
+        else if (c.tipo === 'flag') dati[c.nome] = dialogoForm.querySelector(`[name="${c.nome}"]:checked`)?.value || '';
         else if (c.tipo === 'livelli') {
           dati[c.nome] = Object.fromEntries(CERTIFICAZIONI.map(([k]) =>
             [k, Object.fromEntries(c.opzioni.map(([v]) => [v, livelloSpuntato(dialogoForm, `${c.nome}:${k}:${v}`)]))]));
@@ -73,6 +75,11 @@ function campoHtml(c, valore) {
   if (c.tipo === 'checks') {
     return `<label>${esc(c.etichetta)}<span class="checks">${c.opzioni.map(([v, t]) =>
       `<label class="check"><input type="checkbox" name="${c.nome}" value="${esc(v)}" ${(valore || []).includes(v) ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</span></label>`;
+  }
+  // Caselle di cui se ne può spuntare al massimo una; il valore è quello della casella spuntata, '' se nessuna
+  if (c.tipo === 'flag') {
+    return `<div class="campo">${esc(c.etichetta)}<span class="checks">${c.opzioni.map(([v, t]) =>
+      `<label class="check"><input type="checkbox" data-flag name="${c.nome}" value="${esc(v)}" ${v === valore ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</span></div>`;
   }
   // Un livello per voce e certificazione (0 = no, 1 = istruttore, 2 = direttore); il valore è { irc: { voce: livello }, irccom: {...} }
   if (c.tipo === 'livelli') {
@@ -102,6 +109,13 @@ function collegaLivelli(radice) {
     const [istruttore, direttore] = [1, 2].map((n) => radice.querySelector(`[name="${CSS.escape(`${x.name.slice(0, -2)}:${n}`)}"]`));
     if (x === direttore && direttore.checked) istruttore.checked = true;
     if (x === istruttore && !istruttore.checked) direttore.checked = false;
+  });
+}
+
+function collegaFlag(radice) {
+  radice.querySelectorAll('[data-flag]').forEach((x) => x.onchange = () => {
+    if (!x.checked) return;
+    radice.querySelectorAll(`[data-flag][name="${x.name}"]`).forEach((altra) => altra.checked = altra === x);
   });
 }
 
@@ -156,8 +170,9 @@ async function campiCorso() {
   const [committenti, utenti] = await Promise.all([api('GET', '/committenti'), api('GET', '/utenti')]);
   return [
     { nome: 'data', etichetta: 'Data', tipo: 'date', obbligatorio: true },
+    { nome: 'numero', etichetta: 'Numero di corso' },
     { nome: 'categoria', etichetta: 'Categoria', tipo: 'select', opzioni: CATEGORIE },
-    { nome: 'certificazione', etichetta: 'IRC / IRCcom', tipo: 'select', opzioni: [['', '—'], ...CERTIFICAZIONI] },
+    { nome: 'certificazione', etichetta: 'IRC / IRCcom', tipo: 'flag', opzioni: CERTIFICAZIONI },
     { nome: 'circuito', etichetta: 'CoES / VdA', tipo: 'select', opzioni: [['', '—'], ['CoES', 'CoES'], ['VdA', 'VdA']] },
     { nome: 'tipo', etichetta: 'Tipo di corso', tipo: 'select', opzioni: abilitazioni.map((a) => [a.codice, a.codice]) },
     { nome: 'retraining', etichetta: 'Retraining', tipo: 'checkbox' },
@@ -192,17 +207,17 @@ async function paginaCorsi() {
       </div>
     </div>
     <div class="tabella"><table>
-      <thead><tr><th><input type="checkbox" id="sel-tutti" title="Seleziona tutti"></th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Squadra</th><th>Disponibili</th><th>Stato</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="sel-tutti" title="Seleziona tutti"></th><th>N.</th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Squadra</th><th>Disponibili</th><th>Stato</th></tr></thead>
       <tbody>${corsi.map((c) => `
         <tr class="cliccabile ${c.stato === 'annullato' ? 'spento' : ''}" data-id="${c.id}">
           <td><input type="checkbox" data-sel="${c.id}" ${richiedibile(c) && c.stato === 'bozza' ? 'checked' : ''}></td>
-          <td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
+          <td>${esc(c.numero)}</td><td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
           <td>${esc(c.ora_inizio || '')}${c.ora_fine ? '–' + esc(c.ora_fine) : ''}</td>
           <td>${esc(c.sede)}</td><td>${esc(c.committente)}</td>
           <td><span class="etichetta ${c.assegnati >= c.istruttori_richiesti ? 'si' : 'neutro'}">${c.assegnati}/${c.istruttori_richiesti}</span></td>
           <td>${c.disponibili}</td>
           <td>${esc(nomeStato(c.stato))}</td>
-        </tr>`).join('') || `<tr><td colspan="10" class="muted">Nessun corso</td></tr>`}
+        </tr>`).join('') || `<tr><td colspan="11" class="muted">Nessun corso</td></tr>`}
       </tbody>
     </table></div>
     <div class="azioni"><button id="elimina-sel">Elimina selezionati</button></div>`;
@@ -308,13 +323,13 @@ async function importaCorsi(testo) {
       I corsi già presenti (stessa data, tipo, ora di inizio e sede) vengono saltati.</p>
     ${letti.ignorate.length ? `<p class="muted">Colonne ignorate: ${esc(letti.ignorate.join(', '))}</p>` : ''}
     <div class="tabella"><table>
-      <thead><tr><th>Riga</th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Istr.</th></tr></thead>
+      <thead><tr><th>Riga</th><th>N.</th><th>Data</th><th>Categoria</th><th>Tipo</th><th>Orario</th><th>Sede</th><th>Committente</th><th>Istr.</th></tr></thead>
       <tbody>${letti.righe.map(({ riga, corso: c, errori }) => errori.length
-        ? `<tr><td>${riga}</td><td colspan="7" class="errore">${esc(errori.join('; '))}</td></tr>`
-        : `<tr><td>${riga}</td><td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
+        ? `<tr><td>${riga}</td><td colspan="8" class="errore">${esc(errori.join('; '))}</td></tr>`
+        : `<tr><td>${riga}</td><td>${esc(c.numero)}</td><td>${formatoData(c.data)}</td><td>${esc(nomeCategoria(c))}</td><td>${esc(nomeTipo(c))}</td>
             <td>${esc(c.ora_inizio || '')}${c.ora_fine ? '–' + esc(c.ora_fine) : ''}</td><td>${esc(c.sede)}</td>
             <td>${esc(c.committente)}${c.committente && !committenti.has(c.committente.toLowerCase()) ? ' <span class="etichetta forse">Nuovo</span>' : ''}</td>
-            <td>${c.istruttori_richiesti}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Il file non contiene corsi</td></tr>'}
+            <td>${c.istruttori_richiesti}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Il file non contiene corsi</td></tr>'}
       </tbody>
     </table></div>
     <div class="azioni">
@@ -354,6 +369,7 @@ function disegnaCorso({ corso, candidati, avvisi }) {
       <div><button id="modifica">Modifica</button> <button id="elimina">Elimina</button></div>
     </div>
     <div class="scheda">
+      <div><span>Numero di corso</span>${esc(corso.numero || '—')}</div>
       <div><span>Categoria</span>${esc(nomeCategoria(corso))}</div>
       <div><span>Orario</span>${esc(corso.ora_inizio || '—')}${corso.ora_fine ? '–' + esc(corso.ora_fine) : ''}</div>
       <div><span>Sede</span>${esc(corso.sede || '—')}</div>

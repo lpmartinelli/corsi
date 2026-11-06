@@ -36,6 +36,7 @@ export function leggiCsv(testo) {
 // Nomi accettati per ogni colonna, dopo aver tolto maiuscole, accenti e punteggiatura
 const COLONNE = {
   data: ['data', 'giorno'],
+  numero: ['numero', 'numero_corso', 'numero_di_corso', 'n_corso', 'n_di_corso'],
   tipo: ['tipo', 'corso', 'tipo_corso', 'tipo_di_corso'],
   categoria: ['categoria'],
   circuito: ['circuito', 'coes_vda'],
@@ -51,9 +52,9 @@ const COLONNE = {
 };
 
 export const MODELLO_CSV = [
-  'Data;Categoria;IRC / IRCcom;CoES / VdA;Tipo;Retraining;Ora inizio;Ora fine;Sede;Committente;Istruttori;Note',
-  '15/11/2026;Volontari;IRCcom;CoES;BLSD;;08:00;17:00;Modena;Croce Blu;3;',
-  '18/11/2026;AUSL;;;BLSD;sì;14:00;18:00;Carpi;;2;Aula 2',
+  'Data;Numero di corso;Categoria;IRC / IRCcom;CoES / VdA;Tipo;Retraining;Ora inizio;Ora fine;Sede;Committente;Istruttori;Note',
+  '15/11/2026;12;Volontari;IRCcom;CoES;BLSD;;08:00;17:00;Modena;Croce Blu;3;',
+  '18/11/2026;;AUSL;;;BLSD;sì;14:00;18:00;Carpi;;2;Aula 2',
 ].join('\r\n') + '\r\n';
 
 const normalizza = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -124,6 +125,7 @@ function corsoDaRiga(v, codici) {
   corso.istruttori_richiesti = Number.isInteger(n) && n >= 1 ? n : null;
   if (!corso.istruttori_richiesti) errori.push(`numero di istruttori non valido: ${v.istruttori_richiesti}`);
 
+  corso.numero = v.numero || null;
   corso.sede = v.sede || null;
   corso.committente = v.committente || null;
   corso.note = v.note || null;

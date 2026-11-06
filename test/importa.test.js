@@ -14,9 +14,10 @@ test('il modello si importa senza errori', () => {
   assert.deepEqual(ignorate, []);
   assert.deepEqual(righe.map((r) => r.errori), [[], []]);
   assert.deepEqual(righe[1].corso, {
-    data: '2026-11-18', tipo: 'BLSD', retraining: true, categoria: 'ausl', circuito: null, certificazione: null,
+    data: '2026-11-18', numero: null, tipo: 'BLSD', retraining: true, categoria: 'ausl', circuito: null, certificazione: null,
     ora_inizio: '14:00', ora_fine: '18:00', istruttori_richiesti: 2, sede: 'Carpi', committente: null, note: 'Aula 2',
   });
+  assert.equal(righe[0].corso.numero, '12');
   assert.equal(righe[0].corso.circuito, 'CoES');
   assert.equal(righe[0].corso.certificazione, 'irccom');
 });
